@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vertical Rio — Marketing Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a; --surface: #1e293b; --surface2: #263248;
+    --border: #334155; --text: #f1f5f9; --sub: #94a3b8;
+    --indigo: #6366f1; --green: #22c55e; --amber: #f59e0b;
+    --red: #ef4444; --cyan: #06b6d4;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .kpi-val { font-size: 1.75rem; font-weight: 700; line-height: 1.1; }
+  .kpi-label { font-size: 0.75rem; color: var(--sub); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .kpi-delta { font-size: 0.78rem; margin-top: 4px; }
+  .tab-btn { padding: 8px 18px; border-radius: 8px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: none; transition: all .15s; }
+  .tab-btn.active { background: var(--indigo); color: #fff; }
+  .tab-btn:not(.active) { background: var(--surface2); color: var(--sub); }
+  .tab-btn:hover:not(.active) { background: var(--border); color: var(--text); }
+  .period-btn { padding: 4px 14px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--border); transition: all .15s; }
+  .period-btn.active { background: var(--indigo); border-color: var(--indigo); color: #fff; }
+  .period-btn:not(.active) { background: transparent; color: var(--sub); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 0.7rem; font-weight: 600; }
+  .badge-green  { background: rgba(34,197,94,.15); color: #22c55e; }
+  .badge-red    { background: rgba(239,68,68,.15); color: #ef4444; }
+  .badge-amber  { background: rgba(245,158,11,.15); color: #f59e0b; }
+  .badge-gray   { background: rgba(148,163,184,.1); color: #94a3b8; }
+  .badge-blue   { background: rgba(99,102,241,.15); color: #818cf8; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th { color: var(--sub); font-weight: 500; text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  td { padding: 9px 12px; border-bottom: 1px solid rgba(51,65,85,.5); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(99,102,241,.04); }
+  .funnel-bar { height: 40px; border-radius: 6px; display: flex; align-items: center; padding: 0 14px; font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="border-b" style="border-color:var(--border);background:var(--surface)">
+  <div class="max-w-screen-xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
+    <div class="flex items-center gap-3">
+      <div style="width:36px;height:36px;background:var(--indigo);border-radius:8px;display:flex;align-items:center;justify-content:center;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:1rem;line-height:1.1;">Vertical Rio</div>
+        <div style="font-size:0.7rem;color:var(--sub);">Marketing Dashboard</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-4">
+      <div style="font-size:0.75rem;color:var(--sub);">
+        <span style="color:var(--green)">●</span> Atualizado em <strong style="color:var(--text)">09/06/2026 19:03</strong>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- TABS NAV -->
+<div class="max-w-screen-xl mx-auto px-6 pt-5 pb-1 flex gap-2 flex-wrap">
+  <button class="tab-btn active" onclick="switchTab('visao')">Visão Geral</button>
+  <button class="tab-btn" onclick="switchTab('meta')">Meta Ads</button>
+  <button class="tab-btn" onclick="switchTab('rezdy')">Rezdy Bookings</button>
+</div>
+
+<main class="max-w-screen-xl mx-auto px-6 pb-12">
+
+<!-- ═══════════════════════════════════════════════════════════ VISÃO GERAL -->
+<div id="tab-visao" class="tab-content pt-5">
+
+  <!-- KPIs Meta -->
+  <div class="mb-2" style="font-size:0.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;">Meta Ads — últimos 30 dias</div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+    <div class="card">
+      <div class="kpi-label">Gasto</div>
+      <div class="kpi-val" style="color:var(--indigo)">R$ 23.034,70</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">Impressões</div>
+      <div class="kpi-val">1.970.392</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">CTR</div>
+      <div class="kpi-val" style="color:var(--cyan)">4.30%</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">CPC Médio</div>
+      <div class="kpi-val">R$ 0,27</div>
+    </div>
+  </div>
+
+  <!-- KPIs Rezdy -->
+  <div class="mb-2" style="font-size:0.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;">Rezdy — últimos 30 dias</div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div class="card">
+      <div class="kpi-label">Receita Confirmada</div>
+      <div class="kpi-val" style="color:var(--green)">R$ 758.023,38</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">Reservas Confirmadas</div>
+      <div class="kpi-val">248</div>
+      <div class="kpi-delta" style="color:var(--sub)">500 total (49.60% conversão)</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">Ticket Médio</div>
+      <div class="kpi-val">R$ 3.056,55</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">Abandonadas</div>
+      <div class="kpi-val" style="color:var(--red)">232</div>
+      <div class="kpi-delta" style="color:var(--sub)">de 500 reservas</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <div class="card">
+      <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Gasto & Cliques Diários — 30 dias</div>
+      <canvas id="chartMetaDiario" height="200"></canvas>
+    </div>
+    <div class="card">
+      <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Reservas por Dia — 30 dias</div>
+      <canvas id="chartRezdyDiario" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- Funnel -->
+  <div class="card mb-6">
+    <div style="font-weight:600;font-size:0.9rem;margin-bottom:20px;">Funil: Meta Ads → Rezdy</div>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div style="text-align:center;">
+        <div style="font-size:1.6rem;font-weight:700;color:var(--indigo)">1.970.392</div>
+        <div style="font-size:0.75rem;color:var(--sub);margin-top:2px;">Impressões</div>
+        <div style="width:100%;height:4px;background:var(--indigo);border-radius:2px;margin-top:8px;opacity:.6;"></div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:1.6rem;font-weight:700;color:var(--cyan)">84.783</div>
+        <div style="font-size:0.75rem;color:var(--sub);margin-top:2px;">Cliques</div>
+        <div style="font-size:0.7rem;color:var(--cyan);margin-top:2px;">4.30% CTR</div>
+        <div style="width:100%;height:4px;background:var(--cyan);border-radius:2px;margin-top:6px;opacity:.6;"></div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:1.6rem;font-weight:700;color:var(--amber)">500</div>
+        <div style="font-size:0.75rem;color:var(--sub);margin-top:2px;">Reservas Geradas</div>
+        <div style="font-size:0.7rem;color:var(--amber);margin-top:2px;">0.59% dos cliques</div>
+        <div style="width:100%;height:4px;background:var(--amber);border-radius:2px;margin-top:6px;opacity:.6;"></div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:1.6rem;font-weight:700;color:var(--green)">248</div>
+        <div style="font-size:0.75rem;color:var(--sub);margin-top:2px;">Confirmadas</div>
+        <div style="font-size:0.7rem;color:var(--green);margin-top:2px;">49.60% taxa</div>
+        <div style="width:100%;height:4px;background:var(--green);border-radius:2px;margin-top:6px;opacity:.6;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Receita por Produto -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="card">
+      <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Receita por Produto (30d)</div>
+      <canvas id="chartProdutos" height="220"></canvas>
+    </div>
+    <div class="card">
+      <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Gasto por Campanha (30d)</div>
+      <canvas id="chartCampanhas" height="220"></canvas>
+    </div>
+  </div>
+
+</div><!-- /tab-visao -->
+
+
+<!-- ═══════════════════════════════════════════════════════════ META ADS -->
+<div id="tab-meta" class="tab-content pt-5" style="display:none">
+
+  <!-- Period selector -->
+  <div class="flex items-center gap-2 mb-5">
+    <span style="font-size:0.8rem;color:var(--sub);">Período:</span>
+    <button class="period-btn active" onclick="switchPeriodo('d7',this)">7 dias</button>
+    <button class="period-btn" onclick="switchPeriodo('d14',this)">14 dias</button>
+    <button class="period-btn" onclick="switchPeriodo('d30',this)">30 dias</button>
+  </div>
+
+  <!-- KPIs dinâmicos -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5" id="meta-kpis">
+    <!-- preenchido por JS -->
+  </div>
+
+  <!-- Gráfico diário -->
+  <div class="card mb-5">
+    <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Gasto Diário — últimos 30 dias</div>
+    <canvas id="chartMetaDiario2" height="180"></canvas>
+  </div>
+
+  <!-- Tabela de campanhas -->
+  <div class="card">
+    <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Campanhas — últimos 30 dias</div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Campanha</th>
+            <th style="text-align:right">Gasto</th>
+            <th style="text-align:right">Impressões</th>
+            <th style="text-align:right">Cliques</th>
+            <th style="text-align:right">CTR</th>
+            <th style="text-align:right">CPC</th>
+            <th style="text-align:right">Mensagens</th>
+          </tr>
+        </thead>
+        <tbody id="table-campanhas"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /tab-meta -->
+
+
+<!-- ═══════════════════════════════════════════════════════════ REZDY -->
+<div id="tab-rezdy" class="tab-content pt-5" style="display:none">
+
+  <!-- KPIs Rezdy -->
+  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+    <div class="card">
+      <div class="kpi-label">Total Reservas</div>
+      <div class="kpi-val">500</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">Confirmadas</div>
+      <div class="kpi-val" style="color:var(--green)">248</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">Abandonadas</div>
+      <div class="kpi-val" style="color:var(--red)">232</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">Receita</div>
+      <div class="kpi-val" style="color:var(--green);font-size:1.3rem">R$ 758.023,38</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">Ticket Médio</div>
+      <div class="kpi-val" style="font-size:1.4rem">R$ 3.056,55</div>
+    </div>
+    <div class="card">
+      <div class="kpi-label">Taxa Conversão</div>
+      <div class="kpi-val" style="color:var(--cyan)">49.60%</div>
+    </div>
+  </div>
+
+  <!-- Gráfico reservas + receita -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+    <div class="card">
+      <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Reservas por Dia</div>
+      <canvas id="chartRezdyDiario2" height="200"></canvas>
+    </div>
+    <div class="card">
+      <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Receita Diária Confirmada</div>
+      <canvas id="chartRezdyReceita" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- Tabela por produto -->
+  <div class="card mb-5">
+    <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Por Produto</div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Produto</th>
+            <th style="text-align:right">Ordens</th>
+            <th style="text-align:right">Confirmadas</th>
+            <th style="text-align:right">Receita</th>
+            <th style="text-align:right">Tx Conv.</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:500">Doors off | 30min</td>
+            <td style="text-align:right">461</td>
+            <td style="text-align:right"><span class="badge badge-green">223</span></td>
+            <td style="text-align:right;color:var(--green)">R$ 1.282.476,07</td>
+            <td style="text-align:right">48.4%</td>
+          </tr><tr>
+            <td style="font-weight:500">Doors off | 45min</td>
+            <td style="text-align:right">30</td>
+            <td style="text-align:right"><span class="badge badge-green">18</span></td>
+            <td style="text-align:right;color:var(--green)">R$ 136.291,35</td>
+            <td style="text-align:right">60.0%</td>
+          </tr><tr>
+            <td style="font-weight:500">Doors off | 30min (GYG)</td>
+            <td style="text-align:right">5</td>
+            <td style="text-align:right"><span class="badge badge-green">5</span></td>
+            <td style="text-align:right;color:var(--green)">R$ 16.520,00</td>
+            <td style="text-align:right">100.0%</td>
+          </tr><tr>
+            <td style="font-weight:500">Shuttle Vertical Rio</td>
+            <td style="text-align:right">3</td>
+            <td style="text-align:right"><span class="badge badge-green">2</span></td>
+            <td style="text-align:right;color:var(--green)">R$ 10.855,60</td>
+            <td style="text-align:right">66.7%</td>
+          </tr><tr>
+            <td style="font-weight:500">Gift Card Vertical Rio</td>
+            <td style="text-align:right">1</td>
+            <td style="text-align:right"><span class="badge badge-green">0</span></td>
+            <td style="text-align:right;color:var(--green)">R$ 1.530,00</td>
+            <td style="text-align:right">0.0%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tabela bookings recentes -->
+  <div class="card">
+    <div style="font-weight:600;font-size:0.9rem;margin-bottom:16px;">Últimas 100 Reservas</div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Nº Pedido</th>
+            <th>Status</th>
+            <th>Produto</th>
+            <th style="text-align:right">Valor</th>
+            <th>Data</th>
+            <th>Fonte</th>
+            <th>Cupom</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRWWVCRP</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.662,60</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRKRY1LE</td>
+            <td><span class="badge badge-amber">PROCESSING</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.662,60</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRX0BKQN</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 3.325,20</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRRU1XWU</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.920,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRFMMWXL</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 3.325,20</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRY5KXUP</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 9.250,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRJCG2YD</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 3.325,20</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRF0B1UH</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.468,80</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRFDQ1QV</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.468,80</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR0SLRHC</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 9.435,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRCSTZXK</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.468,80</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRDD05PZ</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.489,20</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRXDCASE</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.489,20</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRPL3G1E</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.733,60</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRPGW5NK</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.733,60</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRCCK0DL</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.720,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR8DZ36S</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.417,80</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">BANANA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRCTNV8A</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 3.325,20</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRREX3QS</td>
+            <td><span class="badge badge-amber">PENDING CUSTOMER</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.460,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRA8UE0X</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 4.700,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRU82SA0</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 5.661,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRESG6US</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 5.661,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR0AYTFH</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 6.120,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRG4PZVA</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min (GYG)</td>
+            <td style="text-align:right;font-weight:500">R$ 3.160,00</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">MARKETPLACE_PREF_RATE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRN6CJ50</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.488,80</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRU0ZKZA</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.488,80</td>
+            <td style="color:var(--sub)">2026-06-09</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRF47E1B</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.390,00</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR1HRMKF</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.489,20</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR29KSSW</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.680,00</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR38DG1E</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.978,40</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRTPVBRZ</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.978,40</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR7EVSSR</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.740,00</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRAJ4HQB</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 4.161,60</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR4S4WRP</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 6.698,62</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">WELOVE</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRK4GHAJ</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 3.121,20</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRJDQ072</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.240,00</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR0WTQ90</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 4.161,60</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRMKFX0Z</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 4.161,60</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR3L8CNS</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.680,00</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRGTF3Y6</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.315,80</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRYEX10N</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.315,80</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRFSJKET</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.315,80</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR2XLLQE</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.468,80</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRFVNAKR</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.485,54</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRCPUKR0</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.040,00</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR8DA213</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.485,54</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRTGRCKX</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.617,75</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRNP6BH7</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.617,75</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRLT5WPA</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.489,20</td>
+            <td style="color:var(--sub)">2026-06-08</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRQPSWH0</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.417,40</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRY2SLGJ</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.417,40</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRA3QXHG</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.488,80</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR1XF5HR</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.488,80</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRPATUSE</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.488,80</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRAUSJCD</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.978,40</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRT1VKZ1</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.488,80</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRTLJBYM</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.488,80</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR3JEEGR</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 4.977,60</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRWHDMZ1</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.613,60</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRR8Y1FU</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 3.916,80</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRHK6RPN</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.520,00</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRLR1CTR</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.427,60</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR9PZ554</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.427,60</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR6M9K54</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.978,40</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRKJFX1C</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.978,40</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR1VZT82</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.427,60</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRV0S47U</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.427,60</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRVPV082</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.978,40</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRW3LBEY</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.591,20</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR1YDCN8</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.425,22</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">VAZAONDE</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRK5D0LZ</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.425,22</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">VAZAONDE</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRBKA3MK</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.713,20</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VREGYQWH</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.713,20</td>
+            <td style="color:var(--sub)">2026-06-07</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRZGZQU1</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 3.182,40</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR4HFTE9</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 3.325,20</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRPDNDD3</td>
+            <td><span class="badge badge-amber">PENDING CUSTOMER</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.380,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRGATJSC</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.720,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRGXRE4K</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.917,20</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRTE9NK0</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.940,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR776ZB0</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.480,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRLVKUHA</td>
+            <td><span class="badge badge-amber">ON HOLD</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.460,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRD3MV00</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.020,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VREDPRZK</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 45min</td>
+            <td style="text-align:right;font-weight:500">R$ 9.470,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRPFEHX0</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.489,20</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRJE0FKF</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.489,20</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRSL1TT5</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.978,40</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRGZVWZV</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.978,40</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRZVWB89</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.261,74</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR3DG8E0</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.284,18</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">VAZAONDE</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRVX9LQ5</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.485,54</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRC1HWQY</td>
+            <td><span class="badge badge-amber">ON HOLD</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.074,68</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRZHVPK1</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.485,54</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR1P3P8Z</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.485,54</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td><span class="badge badge-blue">CARIOQUINHA</span></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR5LNEC8</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.290,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRH3G3EG</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.071,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRECMECK</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 1.071,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR93RG5X</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 3.427,20</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRDUBQXB</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.260,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VRJEGA0J</td>
+            <td><span class="badge badge-green">CONFIRMED</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 6.120,00</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">INTERNAL</td>
+            <td></td>
+          </tr><tr>
+            <td style="font-family:monospace;font-size:0.78rem">VR4RAQ1F</td>
+            <td><span class="badge badge-red">ABANDONED CART</span></td>
+            <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Doors off | 30min</td>
+            <td style="text-align:right;font-weight:500">R$ 2.713,20</td>
+            <td style="color:var(--sub)">2026-06-06</td>
+            <td style="font-size:0.75rem;color:var(--sub)">ONLINE</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /tab-rezdy -->
+
+</main>
+
+<!-- FOOTER -->
+<footer class="border-t" style="border-color:var(--border);padding:20px 24px;text-align:center;font-size:0.73rem;color:var(--sub);">
+  Vertical Rio Marketing Dashboard · Dados ao vivo via Meta Ads Graph API + Rezdy API · 09/06/2026 19:03
+</footer>
+
+<!-- DATA + JS -->
+<script>
+const META_DATA  = {"d7": {"gasto": 6608.86, "impressoes": 427580, "cliques": 17071, "alcance": 314177, "ctr": 3.99, "cpc": 0.39, "cpm": 15.46, "mensagens": 191, "conversas": 96, "compras_meta": 12, "roas": 0.0}, "d14": {"gasto": 13488.61, "impressoes": 908216, "cliques": 36554, "alcance": 622810, "ctr": 4.02, "cpc": 0.37, "cpm": 14.85, "mensagens": 409, "conversas": 206, "compras_meta": 12, "roas": 0.0}, "d30": {"gasto": 23034.7, "impressoes": 1970392, "cliques": 84783, "alcance": 1275884, "ctr": 4.3, "cpc": 0.27, "cpm": 11.69, "mensagens": 553, "conversas": 282, "compras_meta": 15, "roas": 0.0}, "campanhas": [{"nome": "[LX][TRAFEGO-SEGUIDORES][ABO][PUBLICO_FRIO]", "id": "120214656968890437", "gasto": 8842.17, "impressoes": 751445, "cliques": 28165, "ctr": 3.75, "cpc": 0.31, "alcance": 552646, "mensagens": 34, "conversas": 22}, {"nome": "[LX][CONV][ADICAOCARRINHO]", "id": "120246945092970437", "gasto": 4380.89, "impressoes": 185003, "cliques": 4813, "ctr": 2.6, "cpc": 0.91, "alcance": 106980, "mensagens": 32, "conversas": 16}, {"nome": "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][PUBLICO_FRIO] [TESTE]", "id": "120247060568150437", "gasto": 3748.83, "impressoes": 311131, "cliques": 20416, "ctr": 6.56, "cpc": 0.18, "alcance": 219611, "mensagens": 0, "conversas": 0}, {"nome": "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][PUBLICO_FRIO]", "id": "120226714217400437", "gasto": 2601.63, "impressoes": 414805, "cliques": 21027, "ctr": 5.07, "cpc": 0.12, "alcance": 288075, "mensagens": 4, "conversas": 2}, {"nome": "[MSG][GRINGO][RJ][NUVENS-ORG]", "id": "120243998081540437", "gasto": 1593.56, "impressoes": 119089, "cliques": 974, "ctr": 0.82, "cpc": 1.64, "alcance": 63083, "mensagens": 481, "conversas": 241}, {"nome": "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][ESPANHOL]", "id": "120248565125290437", "gasto": 796.63, "impressoes": 65201, "cliques": 4221, "ctr": 6.47, "cpc": 0.19, "alcance": 50119, "mensagens": 2, "conversas": 1}, {"nome": "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][INGLES]", "id": "120248558746090437", "gasto": 789.04, "impressoes": 77074, "cliques": 3892, "ctr": 5.05, "cpc": 0.2, "alcance": 65587, "mensagens": 0, "conversas": 0}, {"nome": "[LX][TRAFEGO-SITE][CARIOQUINHA]", "id": "120248820830860437", "gasto": 281.95, "impressoes": 46644, "cliques": 1275, "ctr": 2.73, "cpc": 0.22, "alcance": 37330, "mensagens": 0, "conversas": 0}], "diario": [{"data": "2026-05-11", "gasto": 1135.07, "impressoes": 128634, "cliques": 5424, "mensagens": 4}, {"data": "2026-05-12", "gasto": 543.66, "impressoes": 64225, "cliques": 2593, "mensagens": 2}, {"data": "2026-05-13", "gasto": 415.38, "impressoes": 54923, "cliques": 2356, "mensagens": 0}, {"data": "2026-05-14", "gasto": 413.93, "impressoes": 55132, "cliques": 2376, "mensagens": 2}, {"data": "2026-05-15", "gasto": 401.65, "impressoes": 50140, "cliques": 2245, "mensagens": 0}, {"data": "2026-05-16", "gasto": 410.42, "impressoes": 51510, "cliques": 2343, "mensagens": 0}, {"data": "2026-05-17", "gasto": 475.06, "impressoes": 60608, "cliques": 2799, "mensagens": 0}, {"data": "2026-05-18", "gasto": 454.68, "impressoes": 55081, "cliques": 2370, "mensagens": 24}, {"data": "2026-05-19", "gasto": 504.75, "impressoes": 57228, "cliques": 2653, "mensagens": 10}, {"data": "2026-05-20", "gasto": 495.08, "impressoes": 55279, "cliques": 2452, "mensagens": 27}, {"data": "2026-05-21", "gasto": 472.32, "impressoes": 52109, "cliques": 2399, "mensagens": 17}, {"data": "2026-05-22", "gasto": 429.62, "impressoes": 42938, "cliques": 1919, "mensagens": 4}, {"data": "2026-05-23", "gasto": 467.46, "impressoes": 48467, "cliques": 2337, "mensagens": 6}, {"data": "2026-05-24", "gasto": 531.7, "impressoes": 45439, "cliques": 2254, "mensagens": 17}, {"data": "2026-05-25", "gasto": 426.13, "impressoes": 32299, "cliques": 1607, "mensagens": 28}, {"data": "2026-05-26", "gasto": 459.28, "impressoes": 30415, "cliques": 1401, "mensagens": 46}, {"data": "2026-05-27", "gasto": 451.09, "impressoes": 30526, "cliques": 1351, "mensagens": 34}, {"data": "2026-05-28", "gasto": 841.8, "impressoes": 60651, "cliques": 2308, "mensagens": 51}, {"data": "2026-05-29", "gasto": 1498.17, "impressoes": 107936, "cliques": 4148, "mensagens": 20}, {"data": "2026-05-30", "gasto": 1332.88, "impressoes": 92374, "cliques": 3651, "mensagens": 26}, {"data": "2026-05-31", "gasto": 1790.07, "impressoes": 119716, "cliques": 4958, "mensagens": 24}, {"data": "2026-06-01", "gasto": 506.46, "impressoes": 39018, "cliques": 1666, "mensagens": 17}, {"data": "2026-06-02", "gasto": 782.6, "impressoes": 61455, "cliques": 2501, "mensagens": 15}, {"data": "2026-06-03", "gasto": 1012.35, "impressoes": 62162, "cliques": 2676, "mensagens": 16}, {"data": "2026-06-04", "gasto": 1012.38, "impressoes": 61344, "cliques": 2467, "mensagens": 22}, {"data": "2026-06-05", "gasto": 839.26, "impressoes": 53787, "cliques": 2303, "mensagens": 40}, {"data": "2026-06-06", "gasto": 945.67, "impressoes": 54410, "cliques": 2178, "mensagens": 24}, {"data": "2026-06-07", "gasto": 1162.95, "impressoes": 73215, "cliques": 2820, "mensagens": 41}, {"data": "2026-06-08", "gasto": 853.65, "impressoes": 61207, "cliques": 2126, "mensagens": 33}, {"data": "2026-06-09", "gasto": 224.88, "impressoes": 21158, "cliques": 636, "mensagens": 27}]};
+const REZDY_DATA = {"total": 500, "confirmadas": 248, "abandonadas": 232, "outras": 20, "receita": 758023.38, "ticket_medio": 3056.55, "taxa_conv": 49.6, "por_dia": [{"data": "2026-05-11", "confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0}, {"data": "2026-05-12", "confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0}, {"data": "2026-05-13", "confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0}, {"data": "2026-05-14", "confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0}, {"data": "2026-05-15", "confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0}, {"data": "2026-05-16", "confirmadas": 1, "abandonadas": 1, "outras": 1, "receita": 3060.0}, {"data": "2026-05-17", "confirmadas": 6, "abandonadas": 7, "outras": 1, "receita": 20330.8}, {"data": "2026-05-18", "confirmadas": 4, "abandonadas": 6, "outras": 0, "receita": 11763.4}, {"data": "2026-05-19", "confirmadas": 4, "abandonadas": 3, "outras": 3, "receita": 16581.2}, {"data": "2026-05-20", "confirmadas": 8, "abandonadas": 4, "outras": 0, "receita": 23214.84}, {"data": "2026-05-21", "confirmadas": 3, "abandonadas": 11, "outras": 0, "receita": 12886.68}, {"data": "2026-05-22", "confirmadas": 14, "abandonadas": 17, "outras": 2, "receita": 42077.22}, {"data": "2026-05-23", "confirmadas": 7, "abandonadas": 16, "outras": 0, "receita": 19504.28}, {"data": "2026-05-24", "confirmadas": 16, "abandonadas": 8, "outras": 0, "receita": 50463.81}, {"data": "2026-05-25", "confirmadas": 5, "abandonadas": 0, "outras": 1, "receita": 11500.8}, {"data": "2026-05-26", "confirmadas": 7, "abandonadas": 10, "outras": 0, "receita": 16685.9}, {"data": "2026-05-27", "confirmadas": 8, "abandonadas": 19, "outras": 4, "receita": 31881.6}, {"data": "2026-05-28", "confirmadas": 8, "abandonadas": 3, "outras": 0, "receita": 23518.2}, {"data": "2026-05-29", "confirmadas": 10, "abandonadas": 10, "outras": 0, "receita": 24536.26}, {"data": "2026-05-30", "confirmadas": 13, "abandonadas": 12, "outras": 0, "receita": 45610.2}, {"data": "2026-05-31", "confirmadas": 7, "abandonadas": 9, "outras": 2, "receita": 20379.62}, {"data": "2026-06-01", "confirmadas": 10, "abandonadas": 11, "outras": 0, "receita": 25358.62}, {"data": "2026-06-02", "confirmadas": 10, "abandonadas": 2, "outras": 0, "receita": 33003.6}, {"data": "2026-06-03", "confirmadas": 13, "abandonadas": 16, "outras": 0, "receita": 37976.35}, {"data": "2026-06-04", "confirmadas": 14, "abandonadas": 7, "outras": 0, "receita": 44278.52}, {"data": "2026-06-05", "confirmadas": 21, "abandonadas": 12, "outras": 0, "receita": 74872.06}, {"data": "2026-06-06", "confirmadas": 21, "abandonadas": 15, "outras": 4, "receita": 51089.04}, {"data": "2026-06-07", "confirmadas": 12, "abandonadas": 12, "outras": 0, "receita": 31049.02}, {"data": "2026-06-08", "confirmadas": 12, "abandonadas": 11, "outras": 0, "receita": 35376.96}, {"data": "2026-06-09", "confirmadas": 14, "abandonadas": 10, "outras": 2, "receita": 51024.4}], "por_status": {"CONFIRMED": 248, "PROCESSING": 1, "ABANDONED_CART": 232, "PENDING_CUSTOMER": 7, "ON_HOLD": 5, "CANCELLED": 7}, "por_produto": [{"produto": "Doors off | 30min", "ordens": 461, "confirmadas": 223, "receita": 1282476.07}, {"produto": "Doors off | 45min", "ordens": 30, "confirmadas": 18, "receita": 136291.35}, {"produto": "Doors off | 30min (GYG)", "ordens": 5, "confirmadas": 5, "receita": 16520.0}, {"produto": "Shuttle Vertical Rio", "ordens": 3, "confirmadas": 2, "receita": 10855.6}, {"produto": "Gift Card Vertical Rio", "ordens": 1, "confirmadas": 0, "receita": 1530.0}], "por_fonte": {"ONLINE": {"ordens": 362, "receita": 1007245.02}, "INTERNAL": {"ordens": 133, "receita": 423908.0}, "MARKETPLACE_PREF_RATE": {"ordens": 5, "receita": 16520.0}}, "tabela": [{"numero": "VRWWVCRP", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1662.6, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRKRY1LE", "status": "PROCESSING", "produto": "Doors off | 30min", "valor": 1662.6, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRX0BKQN", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 3325.2, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRRU1XWU", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2920.0, "data": "2026-06-09", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRFMMWXL", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 3325.2, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRY5KXUP", "status": "CONFIRMED", "produto": "Doors off | 45min", "valor": 9250.0, "data": "2026-06-09", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRJCG2YD", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 3325.2, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRF0B1UH", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1468.8, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRFDQ1QV", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1468.8, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR0SLRHC", "status": "ABANDONED_CART", "produto": "Doors off | 45min", "valor": 9435.0, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRCSTZXK", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1468.8, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRDD05PZ", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1489.2, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRXDCASE", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1489.2, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRPL3G1E", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2733.6, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRPGW5NK", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2733.6, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRCCK0DL", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2720.0, "data": "2026-06-09", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VR8DZ36S", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1417.8, "data": "2026-06-09", "fonte": "ONLINE", "coupon": "BANANA"}, {"numero": "VRCTNV8A", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 3325.2, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRREX3QS", "status": "PENDING_CUSTOMER", "produto": "Doors off | 30min", "valor": 1460.0, "data": "2026-06-09", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRA8UE0X", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 4700.0, "data": "2026-06-09", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRU82SA0", "status": "CONFIRMED", "produto": "Doors off | 45min", "valor": 5661.0, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRESG6US", "status": "ABANDONED_CART", "produto": "Doors off | 45min", "valor": 5661.0, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR0AYTFH", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 6120.0, "data": "2026-06-09", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRG4PZVA", "status": "CONFIRMED", "produto": "Doors off | 30min (GYG)", "valor": 3160.0, "data": "2026-06-09", "fonte": "MARKETPLACE_PREF_RATE", "coupon": ""}, {"numero": "VRN6CJ50", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2488.8, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRU0ZKZA", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2488.8, "data": "2026-06-09", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRF47E1B", "status": "CONFIRMED", "produto": "Doors off | 45min", "valor": 2390.0, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR1HRMKF", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1489.2, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR29KSSW", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2680.0, "data": "2026-06-08", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VR38DG1E", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2978.4, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRTPVBRZ", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2978.4, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR7EVSSR", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2740.0, "data": "2026-06-08", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRAJ4HQB", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 4161.6, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR4S4WRP", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 6698.62, "data": "2026-06-08", "fonte": "ONLINE", "coupon": "WELOVE"}, {"numero": "VRK4GHAJ", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 3121.2, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRJDQ072", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1240.0, "data": "2026-06-08", "fonte": "INTERNAL", "coupon": "CARIOQUINHA"}, {"numero": "VR0WTQ90", "status": "CONFIRMED", "produto": "Doors off | 45min", "valor": 4161.6, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRMKFX0Z", "status": "ABANDONED_CART", "produto": "Doors off | 45min", "valor": 4161.6, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR3L8CNS", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1680.0, "data": "2026-06-08", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRGTF3Y6", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1315.8, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRYEX10N", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1315.8, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRFSJKET", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1315.8, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR2XLLQE", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1468.8, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRFVNAKR", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1485.54, "data": "2026-06-08", "fonte": "ONLINE", "coupon": "CARIOQUINHA"}, {"numero": "VRCPUKR0", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2040.0, "data": "2026-06-08", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VR8DA213", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1485.54, "data": "2026-06-08", "fonte": "ONLINE", "coupon": "CARIOQUINHA"}, {"numero": "VRTGRCKX", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1617.75, "data": "2026-06-08", "fonte": "ONLINE", "coupon": "CARIOQUINHA"}, {"numero": "VRNP6BH7", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1617.75, "data": "2026-06-08", "fonte": "ONLINE", "coupon": "CARIOQUINHA"}, {"numero": "VRLT5WPA", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1489.2, "data": "2026-06-08", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRQPSWH0", "status": "CONFIRMED", "produto": "Doors off | 45min", "valor": 2417.4, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRY2SLGJ", "status": "ABANDONED_CART", "produto": "Doors off | 45min", "valor": 2417.4, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRA3QXHG", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2488.8, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR1XF5HR", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2488.8, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRPATUSE", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2488.8, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRAUSJCD", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2978.4, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRT1VKZ1", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2488.8, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRTLJBYM", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2488.8, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR3JEEGR", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 4977.6, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRWHDMZ1", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1613.6, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRR8Y1FU", "status": "CONFIRMED", "produto": "Doors off | 45min", "valor": 3916.8, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRHK6RPN", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2520.0, "data": "2026-06-07", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRLR1CTR", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2427.6, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR9PZ554", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2427.6, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR6M9K54", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2978.4, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRKJFX1C", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2978.4, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR1VZT82", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2427.6, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRV0S47U", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2427.6, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRVPV082", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2978.4, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRW3LBEY", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1591.2, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR1YDCN8", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2425.22, "data": "2026-06-07", "fonte": "ONLINE", "coupon": "VAZAONDE"}, {"numero": "VRK5D0LZ", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2425.22, "data": "2026-06-07", "fonte": "ONLINE", "coupon": "VAZAONDE"}, {"numero": "VRBKA3MK", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2713.2, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VREGYQWH", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2713.2, "data": "2026-06-07", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRZGZQU1", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 3182.4, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR4HFTE9", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 3325.2, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRPDNDD3", "status": "PENDING_CUSTOMER", "produto": "Doors off | 30min", "valor": 2380.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRGATJSC", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2720.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRGXRE4K", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2917.2, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRTE9NK0", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1940.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VR776ZB0", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1480.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRLVKUHA", "status": "ON_HOLD", "produto": "Doors off | 30min", "valor": 1460.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRD3MV00", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1020.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VREDPRZK", "status": "ABANDONED_CART", "produto": "Doors off | 45min", "valor": 9470.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRPFEHX0", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1489.2, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRJE0FKF", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1489.2, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRSL1TT5", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2978.4, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRGZVWZV", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2978.4, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRZVWB89", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1261.74, "data": "2026-06-06", "fonte": "ONLINE", "coupon": "CARIOQUINHA"}, {"numero": "VR3DG8E0", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1284.18, "data": "2026-06-06", "fonte": "ONLINE", "coupon": "VAZAONDE"}, {"numero": "VRVX9LQ5", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1485.54, "data": "2026-06-06", "fonte": "ONLINE", "coupon": "CARIOQUINHA"}, {"numero": "VRC1HWQY", "status": "ON_HOLD", "produto": "Doors off | 30min", "valor": 2074.68, "data": "2026-06-06", "fonte": "ONLINE", "coupon": "CARIOQUINHA"}, {"numero": "VRZHVPK1", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1485.54, "data": "2026-06-06", "fonte": "ONLINE", "coupon": "CARIOQUINHA"}, {"numero": "VR1P3P8Z", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1485.54, "data": "2026-06-06", "fonte": "ONLINE", "coupon": "CARIOQUINHA"}, {"numero": "VR5LNEC8", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 1290.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRH3G3EG", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1071.0, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRECMECK", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 1071.0, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VR93RG5X", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 3427.2, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}, {"numero": "VRDUBQXB", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 2260.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VRJEGA0J", "status": "CONFIRMED", "produto": "Doors off | 30min", "valor": 6120.0, "data": "2026-06-06", "fonte": "INTERNAL", "coupon": ""}, {"numero": "VR4RAQ1F", "status": "ABANDONED_CART", "produto": "Doors off | 30min", "valor": 2713.2, "data": "2026-06-06", "fonte": "ONLINE", "coupon": ""}]};
+const CAMPS_DATA = [{"nome": "[LX][TRAFEGO-SEGUIDORES][ABO][PUBLICO_FRIO]", "id": "120214656968890437", "gasto": 8842.17, "impressoes": 751445, "cliques": 28165, "ctr": 3.75, "cpc": 0.31, "alcance": 552646, "mensagens": 34, "conversas": 22}, {"nome": "[LX][CONV][ADICAOCARRINHO]", "id": "120246945092970437", "gasto": 4380.89, "impressoes": 185003, "cliques": 4813, "ctr": 2.6, "cpc": 0.91, "alcance": 106980, "mensagens": 32, "conversas": 16}, {"nome": "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][PUBLICO_FRIO] [TESTE]", "id": "120247060568150437", "gasto": 3748.83, "impressoes": 311131, "cliques": 20416, "ctr": 6.56, "cpc": 0.18, "alcance": 219611, "mensagens": 0, "conversas": 0}, {"nome": "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][PUBLICO_FRIO]", "id": "120226714217400437", "gasto": 2601.63, "impressoes": 414805, "cliques": 21027, "ctr": 5.07, "cpc": 0.12, "alcance": 288075, "mensagens": 4, "conversas": 2}, {"nome": "[MSG][GRINGO][RJ][NUVENS-ORG]", "id": "120243998081540437", "gasto": 1593.56, "impressoes": 119089, "cliques": 974, "ctr": 0.82, "cpc": 1.64, "alcance": 63083, "mensagens": 481, "conversas": 241}, {"nome": "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][ESPANHOL]", "id": "120248565125290437", "gasto": 796.63, "impressoes": 65201, "cliques": 4221, "ctr": 6.47, "cpc": 0.19, "alcance": 50119, "mensagens": 2, "conversas": 1}, {"nome": "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][INGLES]", "id": "120248558746090437", "gasto": 789.04, "impressoes": 77074, "cliques": 3892, "ctr": 5.05, "cpc": 0.2, "alcance": 65587, "mensagens": 0, "conversas": 0}, {"nome": "[LX][TRAFEGO-SITE][CARIOQUINHA]", "id": "120248820830860437", "gasto": 281.95, "impressoes": 46644, "cliques": 1275, "ctr": 2.73, "cpc": 0.22, "alcance": 37330, "mensagens": 0, "conversas": 0}];
+
+// ─── Tab switching ────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).style.display = 'block';
+  event.target.classList.add('active');
+  if (tab === 'meta' && !window._metaChartInit) { initMetaCharts(); window._metaChartInit = true; }
+  if (tab === 'rezdy' && !window._rezdyChartInit) { initRezdyCharts2(); window._rezdyChartInit = true; }
+}
+
+// ─── Period switching ─────────────────────────────────────────────────────────
+let periodoAtual = 'd7';
+function switchPeriodo(p, btn) {
+  periodoAtual = p;
+  document.querySelectorAll('.period-btn').forEach(el => el.classList.remove('active'));
+  btn.classList.add('active');
+  renderMetaKPIs(p);
+}
+
+function renderMetaKPIs(p) {
+  const d = META_DATA[p];
+  const fmtBrl = v => 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtN   = v => parseInt(v).toLocaleString('pt-BR');
+  const kpis = [
+    { label:'Gasto', val: fmtBrl(d.gasto),      color:'#6366f1' },
+    { label:'Impressões', val: fmtN(d.impressoes), color:'#f1f5f9' },
+    { label:'Alcance', val: fmtN(d.alcance),     color:'#f1f5f9' },
+    { label:'Cliques', val: fmtN(d.cliques),     color:'#f1f5f9' },
+    { label:'CTR', val: d.ctr.toFixed(2)+'%',   color:'#06b6d4' },
+    { label:'CPC', val: fmtBrl(d.cpc),           color:'#f1f5f9' },
+    { label:'CPM', val: fmtBrl(d.cpm),           color:'#f1f5f9' },
+    { label:'Mensagens', val: fmtN(d.mensagens), color:'#22c55e' },
+  ];
+  document.getElementById('meta-kpis').innerHTML = kpis.map(k => `
+    <div class="card">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-val" style="color:${k.color};font-size:1.4rem">${k.val}</div>
+    </div>`).join('');
+}
+
+// ─── Campanhas table ──────────────────────────────────────────────────────────
+function renderCampanhas() {
+  const fmtBrl = v => 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtN   = v => parseInt(v).toLocaleString('pt-BR');
+  document.getElementById('table-campanhas').innerHTML = CAMPS_DATA.map(c => `
+    <tr>
+      <td style="font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.nome}</td>
+      <td style="text-align:right;color:#6366f1;font-weight:600">${fmtBrl(c.gasto)}</td>
+      <td style="text-align:right">${fmtN(c.impressoes)}</td>
+      <td style="text-align:right">${fmtN(c.cliques)}</td>
+      <td style="text-align:right;color:#06b6d4">${c.ctr.toFixed(2)}%</td>
+      <td style="text-align:right">${fmtBrl(c.cpc)}</td>
+      <td style="text-align:right;color:#22c55e">${fmtN(c.mensagens)}</td>
+    </tr>`).join('');
+}
+
+// ─── Chart defaults ───────────────────────────────────────────────────────────
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.borderColor = '#334155';
+Chart.defaults.font.family = 'system-ui, sans-serif';
+
+const LABELS_DIAS  = ["05-11", "05-12", "05-13", "05-14", "05-15", "05-16", "05-17", "05-18", "05-19", "05-20", "05-21", "05-22", "05-23", "05-24", "05-25", "05-26", "05-27", "05-28", "05-29", "05-30", "05-31", "06-01", "06-02", "06-03", "06-04", "06-05", "06-06", "06-07", "06-08", "06-09"];
+const GASTO_DIAS   = [1135.07, 543.66, 415.38, 413.93, 401.65, 410.42, 475.06, 454.68, 504.75, 495.08, 472.32, 429.62, 467.46, 531.7, 426.13, 459.28, 451.09, 841.8, 1498.17, 1332.88, 1790.07, 506.46, 782.6, 1012.35, 1012.38, 839.26, 945.67, 1162.95, 853.65, 224.88];
+const CLICKS_DIAS  = [5424, 2593, 2356, 2376, 2245, 2343, 2799, 2370, 2653, 2452, 2399, 1919, 2337, 2254, 1607, 1401, 1351, 2308, 4148, 3651, 4958, 1666, 2501, 2676, 2467, 2303, 2178, 2820, 2126, 636];
+const RZ_LABELS    = ["05-11", "05-12", "05-13", "05-14", "05-15", "05-16", "05-17", "05-18", "05-19", "05-20", "05-21", "05-22", "05-23", "05-24", "05-25", "05-26", "05-27", "05-28", "05-29", "05-30", "05-31", "06-01", "06-02", "06-03", "06-04", "06-05", "06-06", "06-07", "06-08", "06-09"];
+const RZ_CONF      = [0, 0, 0, 0, 0, 1, 6, 4, 4, 8, 3, 14, 7, 16, 5, 7, 8, 8, 10, 13, 7, 10, 10, 13, 14, 21, 21, 12, 12, 14];
+const RZ_ABAND     = [0, 0, 0, 0, 0, 1, 7, 6, 3, 4, 11, 17, 16, 8, 0, 10, 19, 3, 10, 12, 9, 11, 2, 16, 7, 12, 15, 12, 11, 10];
+const RZ_RECEITA   = [0.0, 0.0, 0.0, 0.0, 0.0, 3060.0, 20330.8, 11763.4, 16581.2, 23214.84, 12886.68, 42077.22, 19504.28, 50463.81, 11500.8, 16685.9, 31881.6, 23518.2, 24536.26, 45610.2, 20379.62, 25358.62, 33003.6, 37976.35, 44278.52, 74872.06, 51089.04, 31049.02, 35376.96, 51024.4];
+const PROD_NOMES   = ["Doors off | 30min", "Doors off | 45min", "Doors off | 30min (GYG)", "Shuttle Vertical Rio", "Gift Card Vertical Rio"];
+const PROD_RECEITA = [1282476.07, 136291.35, 16520.0, 10855.6, 1530.0];
+const CAMP_NOMES   = ["[LX][TRAFEGO-SEGUIDORES][ABO][PUBLI", "[LX][CONV][ADICAOCARRINHO]", "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][", "[LX][TRAFEGO-SITE][PAGE VIEW][ABO][", "[MSG][GRINGO][RJ][NUVENS-ORG]", "[LX][TRAFEGO-SITE][PAGE VIEW][ABO]["];
+const CAMP_GASTOS  = [8842.17, 4380.89, 3748.83, 2601.63, 1593.56, 796.63];
+
+// ─── Visão Geral charts ───────────────────────────────────────────────────────
+new Chart(document.getElementById('chartMetaDiario'), {
+  type: 'bar',
+  data: {
+    labels: LABELS_DIAS,
+    datasets: [
+      {
+        label: 'Gasto (R$)', data: GASTO_DIAS,
+        backgroundColor: 'rgba(99,102,241,.7)', yAxisID: 'y',
+        borderRadius: 4, order: 2,
+      },
+      {
+        label: 'Cliques', data: CLICKS_DIAS, type: 'line',
+        borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,.1)',
+        fill: true, tension: 0.4, pointRadius: 2, yAxisID: 'y1', order: 1,
+      },
+    ]
+  },
+  options: {
+    responsive: true, interaction: { mode:'index', intersect:false },
+    plugins: { legend: { labels: { boxWidth:12 } } },
+    scales: {
+      y:  { position:'left',  grid:{color:'rgba(51,65,85,.4)'}, ticks:{callback: v => 'R$'+v.toLocaleString('pt-BR')} },
+      y1: { position:'right', grid:{drawOnChartArea:false} },
+      x:  { grid:{display:false}, ticks:{maxTicksLimit:10} }
+    }
+  }
+});
+
+new Chart(document.getElementById('chartRezdyDiario'), {
+  type: 'bar',
+  data: {
+    labels: RZ_LABELS,
+    datasets: [
+      { label:'Confirmadas', data:RZ_CONF,  backgroundColor:'rgba(34,197,94,.75)', borderRadius:3, stack:'s' },
+      { label:'Abandonadas', data:RZ_ABAND, backgroundColor:'rgba(239,68,68,.5)',  borderRadius:3, stack:'s' },
+    ]
+  },
+  options: {
+    responsive: true, interaction:{mode:'index', intersect:false},
+    plugins:{ legend:{ labels:{boxWidth:12} } },
+    scales: {
+      x:{grid:{display:false}, ticks:{maxTicksLimit:10}},
+      y:{grid:{color:'rgba(51,65,85,.4)'}}
+    }
+  }
+});
+
+new Chart(document.getElementById('chartProdutos'), {
+  type: 'doughnut',
+  data: {
+    labels: PROD_NOMES,
+    datasets: [{ data:PROD_RECEITA,
+      backgroundColor:['#6366f1','#22c55e','#06b6d4','#f59e0b','#ec4899','#8b5cf6','#14b8a6','#f97316'],
+      borderWidth:0, hoverOffset:6,
+    }]
+  },
+  options: {
+    responsive:true,
+    plugins:{ legend:{ position:'right', labels:{boxWidth:12, padding:12} },
+      tooltip:{ callbacks:{ label: ctx => ctx.label + ': R$ ' + ctx.raw.toLocaleString('pt-BR', {minimumFractionDigits:2}) } }
+    }
+  }
+});
+
+new Chart(document.getElementById('chartCampanhas'), {
+  type: 'bar',
+  data: {
+    labels: CAMP_NOMES,
+    datasets: [{ label:'Gasto (R$)', data:CAMP_GASTOS,
+      backgroundColor:'rgba(99,102,241,.75)', borderRadius:4,
+    }]
+  },
+  options: {
+    indexAxis:'y', responsive:true,
+    plugins:{ legend:{display:false},
+      tooltip:{ callbacks:{ label: ctx => 'R$ ' + ctx.raw.toLocaleString('pt-BR', {minimumFractionDigits:2}) } }
+    },
+    scales:{ x:{ grid:{color:'rgba(51,65,85,.4)'}, ticks:{callback:v=>'R$'+v.toLocaleString('pt-BR')} }, y:{grid:{display:false}} }
+  }
+});
+
+// ─── Meta Ads tab charts ──────────────────────────────────────────────────────
+function initMetaCharts() {
+  renderMetaKPIs('d7');
+  renderCampanhas();
+  new Chart(document.getElementById('chartMetaDiario2'), {
+    type:'bar',
+    data:{
+      labels:LABELS_DIAS,
+      datasets:[
+        { label:'Gasto (R$)', data:GASTO_DIAS, backgroundColor:'rgba(99,102,241,.7)', borderRadius:4, order:2, yAxisID:'y' },
+        { label:'Cliques', data:CLICKS_DIAS, type:'line', borderColor:'#06b6d4', backgroundColor:'rgba(6,182,212,.1)', fill:true, tension:0.4, pointRadius:2, yAxisID:'y1', order:1 },
+      ]
+    },
+    options:{
+      responsive:true, interaction:{mode:'index', intersect:false},
+      plugins:{legend:{labels:{boxWidth:12}}},
+      scales:{
+        y:{position:'left', grid:{color:'rgba(51,65,85,.4)'}, ticks:{callback:v=>'R$'+v.toLocaleString('pt-BR')}},
+        y1:{position:'right', grid:{drawOnChartArea:false}},
+        x:{grid:{display:false}, ticks:{maxTicksLimit:10}}
+      }
+    }
+  });
+}
+
+// ─── Rezdy tab charts ─────────────────────────────────────────────────────────
+function initRezdyCharts2() {
+  new Chart(document.getElementById('chartRezdyDiario2'), {
+    type:'bar',
+    data:{
+      labels:RZ_LABELS,
+      datasets:[
+        {label:'Confirmadas', data:RZ_CONF,  backgroundColor:'rgba(34,197,94,.75)', borderRadius:3, stack:'s'},
+        {label:'Abandonadas', data:RZ_ABAND, backgroundColor:'rgba(239,68,68,.5)',  borderRadius:3, stack:'s'},
+      ]
+    },
+    options:{
+      responsive:true, interaction:{mode:'index', intersect:false},
+      plugins:{legend:{labels:{boxWidth:12}}},
+      scales:{x:{grid:{display:false}, ticks:{maxTicksLimit:10}}, y:{grid:{color:'rgba(51,65,85,.4)'}}}
+    }
+  });
+  new Chart(document.getElementById('chartRezdyReceita'), {
+    type:'line',
+    data:{
+      labels:RZ_LABELS,
+      datasets:[{
+        label:'Receita Confirmada (R$)', data:RZ_RECEITA,
+        borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,.1)',
+        fill:true, tension:0.4, pointRadius:2,
+      }]
+    },
+    options:{
+      responsive:true,
+      plugins:{legend:{labels:{boxWidth:12}},
+        tooltip:{callbacks:{label:ctx=>'R$ '+ctx.raw.toLocaleString('pt-BR',{minimumFractionDigits:2})}}
+      },
+      scales:{
+        x:{grid:{display:false}, ticks:{maxTicksLimit:10}},
+        y:{grid:{color:'rgba(51,65,85,.4)'}, ticks:{callback:v=>'R$'+v.toLocaleString('pt-BR')}}
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
