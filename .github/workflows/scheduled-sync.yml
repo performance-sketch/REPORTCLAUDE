@@ -1,0 +1,60 @@
+name: Scheduled Sync
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # Meta Ads a cada 30 min
+    - cron: "0 3 * * *"      # Rezdy full reconciliation às 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Qual sync executar"
+        required: true
+        default: "both"
+        type: choice
+        options:
+          - both
+          - meta-ads
+          - rezdy
+
+jobs:
+  sync-meta-ads:
+    name: Sync Meta Ads
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' && (inputs.target == 'meta-ads' || inputs.target == 'both') ||
+      github.event_name == 'schedule'
+
+    steps:
+      - name: Trigger Meta Ads sync
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          SYNC_TRIGGER_SECRET: ${{ secrets.SYNC_TRIGGER_SECRET }}
+        run: |
+          curl -f -X POST "$API_URL/sync/meta-ads" \
+            -H "X-Sync-Secret: $SYNC_TRIGGER_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"lookback_days": 3}' \
+            --max-time 60 \
+            --retry 3 \
+            --retry-delay 10
+
+  sync-rezdy:
+    name: Sync Rezdy
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' && (inputs.target == 'rezdy' || inputs.target == 'both') ||
+      github.event_name == 'schedule'
+
+    steps:
+      - name: Trigger Rezdy reconciliation
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          SYNC_TRIGGER_SECRET: ${{ secrets.SYNC_TRIGGER_SECRET }}
+        run: |
+          curl -f -X POST "$API_URL/sync/rezdy" \
+            -H "X-Sync-Secret: $SYNC_TRIGGER_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"lookback_days": 7}' \
+            --max-time 120 \
+            --retry 3 \
+            --retry-delay 15
