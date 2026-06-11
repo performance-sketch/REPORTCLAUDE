@@ -419,32 +419,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
     def fmt_n(v):   return f"{int(v):,}".replace(",", ".")
     def fmt_pct(v): return f"{v:.2f}%"
 
-    # ── Rows HTML: resumo por cupom ──────────────────────────────────────────
-    cupom_resumo_rows = ""
-    for cr in rz["cupom_resumo"]:
-        cupom_resumo_rows += f"""<tr>
-          <td><span class="badge badge-blue" style="font-size:.82rem;padding:3px 10px">{cr["cupom"]}</span></td>
-          <td style="text-align:right;font-weight:700;color:#22c55e">{cr["usos"]}</td>
-          <td style="text-align:right;color:#22c55e;font-weight:600">{fmt_brl(cr["receita"])}</td>
-          <td style="text-align:right">{fmt_brl(cr["ticket"])}</td>
-          <td style="color:#94a3b8;font-size:.8rem">{cr["produto_top"][:45]}</td>
-        </tr>"""
-
-    # ── Rows HTML: detalhe por voo com cupom ─────────────────────────────────
-    cupom_detail_rows = ""
-    for b in rz["voos_cupom"]:
-        cupom_detail_rows += f"""<tr>
-          <td style="font-family:monospace;font-size:.78rem">{b["numero"]}</td>
-          <td><span class="badge badge-blue">{b["coupon"]}</span></td>
-          <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{b["produto"]}</td>
-          <td style="text-align:right">{b["pax"] if b["pax"] else "—"}</td>
-          <td style="text-align:right;color:#22c55e;font-weight:600">{fmt_brl(b["valor"])}</td>
-          <td style="color:#94a3b8">{b["data"]}</td>
-          <td style="color:#94a3b8">{b["tour_dt"] or "—"}</td>
-          <td style="color:#94a3b8;font-size:.8rem;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{b["nome"]}</td>
-        </tr>"""
-
-    total_cupom_str = f'{len(rz["voos_cupom"])} voos · {len(rz["cupom_resumo"])} cupons'
+    # Cupons agora são 100 % dinâmicos via JS — sem rows pré-geradas no Python
 
 
     html = f"""<!DOCTYPE html>
@@ -749,40 +724,45 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
     </div>
   </div>
 
-  <!-- ── Voos Confirmados via Cupom ─────────────────────────────────────── -->
-  <div class="card mb-5">
+  <!-- ── Voos Confirmados via Cupom (dinâmico) ──────────────────────────── -->
+  <div class="card mb-5" id="cupom-section">
     <div class="flex items-center gap-3 mb-4 flex-wrap">
       <div style="font-weight:600;font-size:.9rem">Voos Confirmados via Cupom</div>
-      <span class="badge badge-blue">{total_cupom_str}</span>
+      <span class="badge badge-blue" id="cupom-count">—</span>
     </div>
 
-    {'<p style="color:#94a3b8;font-size:.85rem;padding:8px 0">Nenhum voo confirmado com cupom no período.</p>' if not rz["voos_cupom"] else f"""
-    <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Resumo por cupom</div>
-    <div style="overflow-x:auto;margin-bottom:20px">
-      <table>
-        <thead><tr>
-          <th>Cupom</th>
-          <th style="text-align:right">Voos Conf.</th>
-          <th style="text-align:right">Receita Total</th>
-          <th style="text-align:right">Ticket Médio</th>
-          <th>Produto Principal</th>
-        </tr></thead>
-        <tbody>{cupom_resumo_rows}</tbody>
-      </table>
+    <div id="cupom-vazio" style="display:none;color:#94a3b8;font-size:.85rem;padding:8px 0">
+      Nenhum voo confirmado com cupom no período selecionado.
     </div>
 
-    <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detalhe por voo</div>
-    <div style="overflow-x:auto">
-      <table>
-        <thead><tr>
-          <th>Nº Pedido</th><th>Cupom</th><th>Produto</th>
-          <th style="text-align:right">Pax</th>
-          <th style="text-align:right">Valor</th>
-          <th>Reservado</th><th>Voo</th><th>Cliente</th>
-        </tr></thead>
-        <tbody>{cupom_detail_rows}</tbody>
-      </table>
-    </div>"""}
+    <div id="cupom-tabelas">
+      <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Resumo por cupom</div>
+      <div style="overflow-x:auto;margin-bottom:20px">
+        <table>
+          <thead><tr>
+            <th>Cupom</th>
+            <th style="text-align:right">Voos Conf.</th>
+            <th style="text-align:right">Receita Total</th>
+            <th style="text-align:right">Ticket Médio</th>
+            <th>Produto Principal</th>
+          </tr></thead>
+          <tbody id="cupom-resumo-body"></tbody>
+        </table>
+      </div>
+
+      <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detalhe por voo</div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Nº Pedido</th><th>Cupom</th><th>Produto</th>
+            <th style="text-align:right">Pax</th>
+            <th style="text-align:right">Valor</th>
+            <th>Reservado</th><th>Voo</th><th>Cliente</th>
+          </tr></thead>
+          <tbody id="cupom-detail-body"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- ── Últimas Reservas ────────────────────────────────────────────────── -->
@@ -818,6 +798,7 @@ const CAMPS_DIARIO = {camps_diario_json};
 const BOOKINGS     = {bookings_json};
 const HEATMAP      = {heatmap_json};
 const CRIATIVOS    = {criativos_json};
+const VOOS_CUPOM   = {voos_cupom_json};
 const HOJE         = "{hoje_str}";
 const D30_FROM     = "{d30_str}";
 const D90_FROM     = "{d90_str}";
@@ -996,6 +977,7 @@ function applyDateRange(from, to) {{
   renderProdutos(from, to);
   renderBookings(from, to);
   renderPaises(from, to);
+  renderCupons(from, to);
 
   // ── Range label ──
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
@@ -1133,6 +1115,74 @@ function renderCriativos() {{
   }}
   const el = document.getElementById('criativos-body');
   if (el) el.innerHTML = html;
+}}
+
+// ─── Cupons dinâmicos ────────────────────────────────────────────────────────
+function renderCupons(from, to) {{
+  const filtered = VOOS_CUPOM.filter(b => b.data >= from && b.data <= to);
+
+  // Agrega por cupom
+  const agr = {{}};
+  for (const b of filtered) {{
+    if (!agr[b.coupon]) agr[b.coupon] = {{ usos:0, receita:0, produtos:{{}} }};
+    agr[b.coupon].usos    += 1;
+    agr[b.coupon].receita += b.valor;
+    agr[b.coupon].produtos[b.produto] = (agr[b.coupon].produtos[b.produto] || 0) + 1;
+  }}
+
+  const resumoList = Object.entries(agr)
+    .map(([cupom, d]) => ({{
+      cupom,
+      usos:     d.usos,
+      receita:  d.receita,
+      ticket:   d.usos ? d.receita / d.usos : 0,
+      produto_top: Object.entries(d.produtos).sort((a,b)=>b[1]-a[1])[0]?.[0] || '—',
+    }}))
+    .sort((a, b) => b.usos - a.usos);
+
+  // Atualiza badge
+  const badge = document.getElementById('cupom-count');
+  if (badge) badge.textContent = filtered.length + ' voos · ' + resumoList.length + ' cupons';
+
+  // Mostra/oculta seções
+  const vazio   = document.getElementById('cupom-vazio');
+  const tabelas = document.getElementById('cupom-tabelas');
+  if (filtered.length === 0) {{
+    if (vazio)   vazio.style.display   = 'block';
+    if (tabelas) tabelas.style.display = 'none';
+    return;
+  }}
+  if (vazio)   vazio.style.display   = 'none';
+  if (tabelas) tabelas.style.display = 'block';
+
+  // Resumo por cupom
+  const resumoBody = document.getElementById('cupom-resumo-body');
+  if (resumoBody) {{
+    resumoBody.innerHTML = resumoList.map(cr => `
+      <tr>
+        <td><span class="badge badge-blue" style="font-size:.82rem;padding:3px 10px">${{cr.cupom}}</span></td>
+        <td style="text-align:right;font-weight:700;color:#22c55e">${{cr.usos}}</td>
+        <td style="text-align:right;color:#22c55e;font-weight:600">${{fBRL(cr.receita)}}</td>
+        <td style="text-align:right">${{fBRL(cr.ticket)}}</td>
+        <td style="color:#94a3b8;font-size:.8rem">${{cr.produto_top.slice(0,45)}}</td>
+      </tr>`).join('');
+  }}
+
+  // Detalhe por voo
+  const detailBody = document.getElementById('cupom-detail-body');
+  if (detailBody) {{
+    detailBody.innerHTML = filtered.map(b => `
+      <tr>
+        <td style="font-family:monospace;font-size:.78rem">${{b.numero}}</td>
+        <td><span class="badge badge-blue">${{b.coupon}}</span></td>
+        <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.produto}}</td>
+        <td style="text-align:right">${{b.pax || '—'}}</td>
+        <td style="text-align:right;color:#22c55e;font-weight:600">${{fBRL(b.valor)}}</td>
+        <td style="color:#94a3b8">${{b.data}}</td>
+        <td style="color:#94a3b8">${{b.tour_dt || '—'}}</td>
+        <td style="color:#94a3b8;font-size:.8rem;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.nome}}</td>
+      </tr>`).join('');
+  }}
 }}
 
 function renderBookings(from, to) {{
