@@ -657,7 +657,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
   <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
     <div class="card"><div class="kpi-label">Total Reservas</div><div class="kpi-val" id="rk-total">{rz["total"]}</div></div>
     <div class="card"><div class="kpi-label">Confirmadas</div><div class="kpi-val" id="rk-conf" style="color:var(--green)">{rz["confirmadas"]}</div></div>
-    <div class="card"><div class="kpi-label">Voos Realizados</div><div class="kpi-val" id="rk-fulfilments" style="color:var(--cyan)">{rz["fulfilments"]}</div></div>
+    <div class="card"><div class="kpi-label">Voos Realizados</div><div class="kpi-val" id="rk-fulfilments" style="color:var(--cyan)">{rz["fulfilments"]}</div><div class="kpi-delta">pelo dia do voo</div></div>
     <div class="card"><div class="kpi-label">Abandonadas</div><div class="kpi-val" id="rk-aband" style="color:var(--red)">{rz["abandonadas"]}</div></div>
     <div class="card"><div class="kpi-label">Receita</div><div class="kpi-val" id="rk-receita" style="color:var(--green);font-size:1.2rem">{fmt_brl(rz["receita"])}</div></div>
     <div class="card"><div class="kpi-label">Ticket Médio</div><div class="kpi-val" id="rk-ticket" style="font-size:1.3rem">{fmt_brl(rz["ticket_medio"])}</div></div>
@@ -667,6 +667,22 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
     <div class="card"><div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Reservas por Dia</div><canvas id="chartRezdyDiario2" height="200"></canvas></div>
     <div class="card"><div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Receita Diária Confirmada</div><canvas id="chartRezdyReceita" height="200"></canvas></div>
+  </div>
+
+  <!-- Booking vs Fulfilment -->
+  <div class="card mb-5">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div style="font-weight:600;font-size:.9rem">Dia da Reserva vs Dia do Voo (Fulfilment)</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
+          <span style="display:inline-block;width:12px;height:12px;background:rgba(99,102,241,.65);border-radius:2px"></span>Reservas feitas
+        </span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
+          <span style="display:inline-block;width:22px;height:2px;background:#06b6d4;border-radius:2px"></span>Voos realizados
+        </span>
+      </div>
+    </div>
+    <canvas id="chartBookingVsFulfilment" height="190"></canvas>
   </div>
 
   <!-- Heatmap: mês da reserva × mês do voo -->
@@ -900,6 +916,45 @@ function buildRezdyReceita(canvasId, rDays) {{
   }});
 }}
 
+function buildBookingVsFulfilment(canvasId, from, to) {{
+  // Gera array de todas as datas do intervalo
+  const dates = [];
+  const cur = new Date(from + 'T12:00:00');
+  const end = new Date(to   + 'T12:00:00');
+  while (cur <= end) {{ dates.push(cur.toISOString().slice(0,10)); cur.setDate(cur.getDate()+1); }}
+
+  // Agrupa por data da reserva e por data do voo
+  const bookMap = {{}};
+  const fulfMap = {{}};
+  for (const b of BOOKINGS) {{
+    if (b.s !== 'CONFIRMED') continue;
+    if (b.d >= from && b.d <= to)         bookMap[b.d] = (bookMap[b.d]||0) + 1;
+    if (b.t && b.t >= from && b.t <= to)  fulfMap[b.t] = (fulfMap[b.t]||0) + 1;
+  }}
+
+  makeChart(canvasId, {{
+    type: 'bar',
+    data: {{
+      labels: dates.map(d => d.slice(5)),
+      datasets: [
+        {{ label:'Reservas feitas', data:dates.map(d=>bookMap[d]||0),
+           backgroundColor:'rgba(99,102,241,.65)', borderRadius:3, order:2 }},
+        {{ label:'Voos realizados (fulfilment)', data:dates.map(d=>fulfMap[d]||0),
+           type:'line', borderColor:'#06b6d4', backgroundColor:'rgba(6,182,212,.12)',
+           fill:true, tension:0.4, pointRadius:2, borderWidth:2, order:1 }},
+      ]
+    }},
+    options:{{
+      responsive:true, interaction:{{mode:'index',intersect:false}},
+      plugins:{{legend:{{display:false}}}},
+      scales:{{
+        x:{{grid:{{display:false}}, ticks:{{maxTicksLimit:14}}}},
+        y:{{grid:{{color:'rgba(51,65,85,.4)'}}, beginAtZero:true, ticks:{{stepSize:1}}}}
+      }}
+    }}
+  }});
+}}
+
 // ─── Date range apply ─────────────────────────────────────────────────────────
 function applyDateRange(from, to) {{
   // ── Filter Meta ──
@@ -960,17 +1015,17 @@ function applyDateRange(from, to) {{
   setText('rk-receita',fBRL(rRec));
   setText('rk-ticket', fBRL(rTick));
   setText('rk-taxa',   fPct(rTaxa));
-  // Voos realizados: confirmados cujo tour_date < hoje
-  const rFulfilments = BOOKINGS.filter(b => b.d >= from && b.d <= to && b.s === 'CONFIRMED' && b.t && b.t < HOJE).length;
+  // Voos realizados: confirmados cujo dia do voo (tour_date) cai no período selecionado
+  const rFulfilments = BOOKINGS.filter(b => b.s === 'CONFIRMED' && b.t && b.t >= from && b.t <= to && b.t <= HOJE).length;
   setText('rk-fulfilments', rFulfilments);
 
   // ── Update charts ──
-  const mLabels = mDays.map(d=>d.data.slice(5));
   buildMetaDiario('chartMetaDiario', mDays);
   buildMetaDiario('chartMetaDiario2', mDays);
   buildRezdyDiario('chartRezdyDiario', rDays);
   buildRezdyDiario('chartRezdyDiario2', rDays);
   buildRezdyReceita('chartRezdyReceita', rDays);
+  buildBookingVsFulfilment('chartBookingVsFulfilment', from, to);
 
   // ── Tabelas e gráficos dinâmicos ──
   renderCampanhas(from, to);
