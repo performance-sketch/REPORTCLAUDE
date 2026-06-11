@@ -38,12 +38,13 @@ def _paginar(resp):
 def _extrair_acoes(actions):
     """Separa todas as action types de mensagens para permitir análise granular."""
     out = {
-        "conexoes":    0,   # total_messaging_connection
-        "first_reply": 0,   # messaging_first_reply
-        "conversas":   0,   # conversation_started_7d  ← mensagens iniciadas
-        "bloqueios":   0,   # messaging_block
-        "compras":     0,
-        "valor_compras": 0.0,
+        "conexoes":        0,   # total_messaging_connection
+        "first_reply":     0,   # messaging_first_reply
+        "conversas":       0,   # conversation_started_7d  ← mensagens iniciadas
+        "bloqueios":       0,   # messaging_block
+        "adicao_carrinho": 0,   # add_to_cart / omni_add_to_cart
+        "compras":         0,
+        "valor_compras":   0.0,
     }
     for a in (actions or []):
         at = a.get("action_type", "")
@@ -56,6 +57,8 @@ def _extrair_acoes(actions):
             out["conversas"] += int(v)
         elif "messaging_block" in at:
             out["bloqueios"] += int(v)
+        elif at == "omni_add_to_cart":
+            out["adicao_carrinho"] += int(v)
         elif at in ("purchase", "omni_purchase", "offsite_conversion.fb_pixel_purchase"):
             out["compras"]       += int(v)
             out["valor_compras"] += v
@@ -108,10 +111,41 @@ def buscar_meta_campanhas(preset="last_30d"):
             "ctr":         round(float(c.get("ctr", 0) or 0), 2),
             "cpc":         round(float(c.get("cpc", 0) or 0), 2) if c.get("cpc") else 0,
             "alcance":     int(c.get("reach", 0) or 0),
-            "conexoes":    acoes["conexoes"],
-            "first_reply": acoes["first_reply"],
-            "conversas":   acoes["conversas"],   # ← mensagens iniciadas
-            "bloqueios":   acoes["bloqueios"],
+            "conexoes":              acoes["conexoes"],
+            "first_reply":           acoes["first_reply"],
+            "conversas":             acoes["conversas"],
+            "adicao_carrinho":       acoes["adicao_carrinho"],
+            "custo_por_msg":         round(spend / acoes["conversas"],       2) if acoes["conversas"]       else 0,
+            "custo_por_carrinho":    round(spend / acoes["adicao_carrinho"], 2) if acoes["adicao_carrinho"] else 0,
+        })
+    resultado.sort(key=lambda x: x["gasto"], reverse=True)
+    return resultado
+
+
+def buscar_meta_criativos(preset="last_30d"):
+    fields = "ad_id,ad_name,campaign_name,campaign_id,spend,impressions,clicks,ctr,cpc,actions"
+    resp = meta_get(f"{META_ACCOUNT}/insights", {
+        "level": "ad", "fields": fields, "date_preset": preset, "limit": 500,
+    })
+    dados = _paginar(resp)
+    resultado = []
+    for a in dados:
+        spend = float(a.get("spend", 0) or 0)
+        if spend < 1.0:
+            continue
+        acoes  = _extrair_acoes(a.get("actions"))
+        cliques = int(a.get("clicks", 0) or 0)
+        resultado.append({
+            "id":    a.get("ad_id", ""),
+            "nome":  a.get("ad_name", "?"),
+            "camp":  a.get("campaign_name", "?"),
+            "gasto": round(spend, 2),
+            "impr":  int(a.get("impressions", 0) or 0),
+            "click": cliques,
+            "ctr":   round(float(a.get("ctr", 0) or 0), 2),
+            "cpc":   round(float(a.get("cpc", 0) or 0), 2) if a.get("cpc") else (round(spend / cliques, 2) if cliques else 0),
+            "msg":   acoes["conversas"],
+            "cart":  acoes["adicao_carrinho"],
         })
     resultado.sort(key=lambda x: x["gasto"], reverse=True)
     return resultado
@@ -149,6 +183,40 @@ def buscar_meta_diario(dias=90):
     return resultado
 
 
+def buscar_meta_diario_campanhas(dias=90):
+    hoje   = datetime.now()
+    inicio = hoje - timedelta(days=dias - 1)
+    resp = meta_get(f"{META_ACCOUNT}/insights", {
+        "level":    "campaign",
+        "fields":   "campaign_name,campaign_id,spend,impressions,clicks,actions",
+        "time_range": json.dumps({
+            "since": inicio.strftime("%Y-%m-%d"),
+            "until": hoje.strftime("%Y-%m-%d"),
+        }),
+        "time_increment": 1,
+        "limit": 500,
+    })
+    dados = _paginar(resp)
+    camps = {}
+    for d in dados:
+        cid   = d.get("campaign_id", "")
+        cname = d.get("campaign_name", "?")
+        spend = float(d.get("spend", 0) or 0)
+        if not spend:
+            continue
+        if cid not in camps:
+            camps[cid] = {"id": cid, "nome": cname, "daily": {}}
+        acoes = _extrair_acoes(d.get("actions"))
+        camps[cid]["daily"][d.get("date_start", "")] = {
+            "g": round(spend, 2),
+            "i": int(d.get("impressions", 0) or 0),
+            "c": int(d.get("clicks", 0) or 0),
+            "m": acoes["conversas"],
+            "a": acoes["adicao_carrinho"],
+        }
+    return list(camps.values())
+
+
 # ─── Rezdy ────────────────────────────────────────────────────────────────────
 def buscar_rezdy_reservas(limite_total=800):
     todas, offset = [], 0
@@ -169,8 +237,10 @@ def buscar_rezdy_reservas(limite_total=800):
 
 
 def processar_rezdy(reservas, dias=90):
-    corte    = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
-    recentes = [b for b in reservas if (b.get("dateCreated") or "")[:10] >= corte]
+    hoje      = datetime.now()
+    hoje_str  = hoje.strftime("%Y-%m-%d")
+    corte     = (hoje - timedelta(days=dias)).strftime("%Y-%m-%d")
+    recentes  = [b for b in reservas if (b.get("dateCreated") or "")[:10] >= corte]
 
     por_dia     = defaultdict(lambda: {"confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0})
     por_produto = defaultdict(lambda: {"ordens": 0, "confirmadas": 0, "receita": 0.0})
@@ -200,7 +270,6 @@ def processar_rezdy(reservas, dias=90):
         else:
             por_dia[data]["outras"] += 1
 
-    hoje = datetime.now()
     todos_dias = []
     for i in range(dias):
         d = (hoje - timedelta(days=dias - 1 - i)).strftime("%Y-%m-%d")
@@ -225,22 +294,50 @@ def processar_rezdy(reservas, dias=90):
         key=lambda x: x["receita"], reverse=True,
     )
 
-    tabela = []
-    for b in sorted(recentes, key=lambda x: x.get("dateCreated", ""), reverse=True)[:150]:
+    # Voos realizados: confirmados com tour_date < hoje (no período 90d)
+    fulfilments = sum(
+        1 for b in recentes
+        if b.get("status") == "CONFIRMED"
+        and b.get("items")
+        and (b["items"][0].get("startTimeLocal") or "")[:10] < hoje_str
+    )
+
+    # Heatmap: mês da criação × mês do voo (todos os reservas buscados)
+    heatmap = defaultdict(lambda: defaultdict(int))
+    for b in reservas:
+        if b.get("status") != "CONFIRMED":
+            continue
+        created_ym = (b.get("dateCreated") or "")[:7]
+        itens = b.get("items", [])
+        if not itens:
+            continue
+        tour_ym = (itens[0].get("startTimeLocal") or "")[:7]
+        if created_ym and tour_ym:
+            heatmap[created_ym][tour_ym] += 1
+    heatmap_dict = {k: dict(v) for k, v in sorted(heatmap.items())}
+
+    # Todos os bookings do período (compacto para JS) — inclui tour date e país
+    todos_bookings = []
+    for b in sorted(recentes, key=lambda x: x.get("dateCreated", ""), reverse=True):
         itens   = b.get("items", [])
         produto = itens[0].get("productName", "-") if itens else "-"
-        tabela.append({
-            "numero":  b.get("orderNumber", ""),
-            "status":  b.get("status", ""),
-            "produto": produto,
-            "valor":   float(b.get("totalAmount", 0) or 0),
-            "data":    (b.get("dateCreated") or "")[:10],
-            "fonte":   (b.get("source") or "ONLINE").upper(),
-            "coupon":  b.get("coupon") or "",
+        tour_dt = (itens[0].get("startTimeLocal") or "")[:10] if itens else ""
+        pax     = sum(i.get("totalQuantity", 1) for i in itens) if itens else 1
+        cc      = (b.get("customer", {}).get("countryCode") or "??").upper()
+        todos_bookings.append({
+            "n":  b.get("orderNumber", ""),
+            "s":  b.get("status", ""),
+            "p":  produto,
+            "v":  round(float(b.get("totalAmount", 0) or 0), 2),
+            "d":  (b.get("dateCreated") or "")[:10],
+            "t":  tour_dt,
+            "f":  (b.get("source") or "ONLINE").upper(),
+            "cc": cc,
+            "px": pax,
         })
 
-    # Voos confirmados com cupom — qualquer cupom, todo o histórico disponível
-    voos_cupom = []
+    # ── Voos confirmados com cupom ─────────────────────────────────────────────
+    voos_cupom   = []
     cupom_resumo = defaultdict(lambda: {"usos": 0, "receita": 0.0, "produtos": defaultdict(int)})
     for b in sorted(recentes, key=lambda x: x.get("dateCreated", ""), reverse=True):
         coupon = (b.get("coupon") or "").strip().upper()
@@ -248,10 +345,11 @@ def processar_rezdy(reservas, dias=90):
             continue
         itens   = b.get("items", [])
         produto = itens[0].get("productName", "-") if itens else "-"
+        tour_dt = (itens[0].get("startTimeLocal") or "")[:10] if itens else ""
         pax     = sum(
             sum(q.get("value", 0) for q in item.get("quantities", []))
             for item in itens
-        )
+        ) or sum(i.get("totalQuantity", 1) for i in itens)
         valor = float(b.get("totalAmount", 0) or 0)
         voos_cupom.append({
             "numero":  b.get("orderNumber", ""),
@@ -260,6 +358,7 @@ def processar_rezdy(reservas, dias=90):
             "pax":     pax,
             "valor":   round(valor, 2),
             "data":    (b.get("dateCreated") or "")[:10],
+            "tour_dt": tour_dt,
             "nome":    (b.get("customer") or {}).get("name", "-"),
         })
         cupom_resumo[coupon]["usos"]    += 1
@@ -268,43 +367,49 @@ def processar_rezdy(reservas, dias=90):
 
     cupom_resumo_lista = sorted(
         [{"cupom": k, "usos": v["usos"], "receita": round(v["receita"], 2),
+          "ticket": round(v["receita"] / v["usos"], 2) if v["usos"] else 0,
           "produto_top": max(v["produtos"], key=v["produtos"].get) if v["produtos"] else "-"}
          for k, v in cupom_resumo.items()],
         key=lambda x: x["usos"], reverse=True,
     )
 
     return {
-        "total":        len(recentes),
-        "confirmadas":  confirmadas_total,
-        "abandonadas":  abandonadas_total,
-        "outras":       len(recentes) - confirmadas_total - abandonadas_total,
-        "receita":      receita_total,
-        "ticket_medio": ticket_medio,
-        "taxa_conv":    taxa_conv,
-        "por_dia":      todos_dias,
-        "por_status":   dict(por_status),
-        "por_produto":  produtos_lista,
-        "por_fonte":    {k: {"ordens": v["ordens"], "receita": round(v["receita"], 2)}
-                         for k, v in por_fonte.items()},
-        "tabela":       tabela,
-        "voos_cupom":        voos_cupom,
-        "cupom_resumo":      cupom_resumo_lista,
+        "total":          len(recentes),
+        "confirmadas":    confirmadas_total,
+        "abandonadas":    abandonadas_total,
+        "outras":         len(recentes) - confirmadas_total - abandonadas_total,
+        "receita":        receita_total,
+        "ticket_medio":   ticket_medio,
+        "taxa_conv":      taxa_conv,
+        "fulfilments":    fulfilments,
+        "por_dia":        todos_dias,
+        "por_status":     dict(por_status),
+        "por_produto":    produtos_lista,
+        "por_fonte":      {k: {"ordens": v["ordens"], "receita": round(v["receita"], 2)}
+                           for k, v in por_fonte.items()},
+        "todos_bookings": todos_bookings,
+        "heatmap":        heatmap_dict,
+        "voos_cupom":     voos_cupom,
+        "cupom_resumo":   cupom_resumo_lista,
     }
 
 
 # ─── HTML ─────────────────────────────────────────────────────────────────────
-def gerar_html(meta, rezdy_dados, atualizado_em):
+def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
     d30 = meta["d30"]
     rz  = rezdy_dados
 
-    meta_json  = json.dumps(meta,       ensure_ascii=False)
-    rezdy_json = json.dumps(rz,         ensure_ascii=False)
-    camps_json = json.dumps(meta["campanhas"], ensure_ascii=False)
-
-    prod_nomes   = json.dumps([p["produto"][:30] for p in rz["por_produto"][:8]])
-    prod_receita = json.dumps([p["receita"]       for p in rz["por_produto"][:8]])
-    camp_nomes   = json.dumps([c["nome"][:35]     for c in meta["campanhas"][:7]])
-    camp_gastos  = json.dumps([c["gasto"]         for c in meta["campanhas"][:7]])
+    # Remove campos pesados de rezdy_json (embutidos separado)
+    _excluir = ("todos_bookings", "heatmap", "voos_cupom", "cupom_resumo")
+    rz_slim = {k: v for k, v in rz.items() if k not in _excluir}
+    meta_json        = json.dumps(meta,                   ensure_ascii=False)
+    rezdy_json       = json.dumps(rz_slim,                ensure_ascii=False)
+    camps_diario_json= json.dumps(camps_diario,           ensure_ascii=False)
+    bookings_json    = json.dumps(rz["todos_bookings"],   ensure_ascii=False)
+    heatmap_json     = json.dumps(rz["heatmap"],          ensure_ascii=False)
+    criativos_json   = json.dumps(criativos,              ensure_ascii=False)
+    voos_cupom_json  = json.dumps(rz["voos_cupom"],       ensure_ascii=False)
+    cupom_resumo_json= json.dumps(rz["cupom_resumo"],     ensure_ascii=False)
 
     hoje_str   = datetime.now().strftime("%Y-%m-%d")
     d30_str    = (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d")
@@ -314,49 +419,18 @@ def gerar_html(meta, rezdy_dados, atualizado_em):
     def fmt_n(v):   return f"{int(v):,}".replace(",", ".")
     def fmt_pct(v): return f"{v:.2f}%"
 
-    camps_rows = ""
-    for c in meta["campanhas"]:
-        # Badge de tipo: MSG vs outros
-        tipo = "MSG" if "[MSG]" in c["nome"] else ("CONV" if "[CONV]" in c["nome"] else "TRAF")
-        tipo_color = "#6366f1" if tipo == "CONV" else ("#22c55e" if tipo == "MSG" else "#06b6d4")
-        camps_rows += f"""<tr>
-          <td>
-            <span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:4px;background:{tipo_color}22;color:{tipo_color};margin-right:6px">{tipo}</span>
-            <span style="font-weight:500">{c["nome"][:55]}</span>
-          </td>
-          <td style="text-align:right;color:#6366f1;font-weight:600">{fmt_brl(c["gasto"])}</td>
-          <td style="text-align:right">{fmt_n(c["impressoes"])}</td>
-          <td style="text-align:right">{fmt_n(c["cliques"])}</td>
-          <td style="text-align:right;color:#06b6d4">{c["ctr"]:.2f}%</td>
-          <td style="text-align:right">{fmt_brl(c["cpc"])}</td>
-          <td style="text-align:right;color:#22c55e;font-weight:600">{fmt_n(c["conversas"])}</td>
-          <td style="text-align:right;color:#94a3b8">{fmt_n(c["conexoes"])}</td>
-          <td style="text-align:right;color:#f59e0b">{fmt_n(c["bloqueios"])}</td>
-        </tr>"""
-
-    prod_rows = ""
-    for p in rz["por_produto"]:
-        tx = round(p["confirmadas"] / p["ordens"] * 100, 1) if p["ordens"] else 0
-        prod_rows += f"""<tr>
-          <td style="font-weight:500">{p["produto"]}</td>
-          <td style="text-align:right">{p["ordens"]}</td>
-          <td style="text-align:right"><span class="badge badge-green">{p["confirmadas"]}</span></td>
-          <td style="text-align:right;color:#22c55e">{fmt_brl(p["receita"])}</td>
-          <td style="text-align:right">{tx:.1f}%</td>
-        </tr>"""
-
-    # ── Tabela resumo por cupom ───────────────────────────────────────────────
+    # ── Rows HTML: resumo por cupom ──────────────────────────────────────────
     cupom_resumo_rows = ""
     for cr in rz["cupom_resumo"]:
         cupom_resumo_rows += f"""<tr>
-          <td><span class="badge badge-blue" style="font-size:.8rem;padding:3px 10px">{cr["cupom"]}</span></td>
+          <td><span class="badge badge-blue" style="font-size:.82rem;padding:3px 10px">{cr["cupom"]}</span></td>
           <td style="text-align:right;font-weight:700;color:#22c55e">{cr["usos"]}</td>
           <td style="text-align:right;color:#22c55e;font-weight:600">{fmt_brl(cr["receita"])}</td>
-          <td style="text-align:right">{fmt_brl(cr["receita"] / cr["usos"] if cr["usos"] else 0)}</td>
+          <td style="text-align:right">{fmt_brl(cr["ticket"])}</td>
           <td style="color:#94a3b8;font-size:.8rem">{cr["produto_top"][:45]}</td>
         </tr>"""
 
-    # ── Tabela detalhada voos confirmados com cupom ────────────────────────────
+    # ── Rows HTML: detalhe por voo com cupom ─────────────────────────────────
     cupom_detail_rows = ""
     for b in rz["voos_cupom"]:
         cupom_detail_rows += f"""<tr>
@@ -366,25 +440,12 @@ def gerar_html(meta, rezdy_dados, atualizado_em):
           <td style="text-align:right">{b["pax"] if b["pax"] else "—"}</td>
           <td style="text-align:right;color:#22c55e;font-weight:600">{fmt_brl(b["valor"])}</td>
           <td style="color:#94a3b8">{b["data"]}</td>
-          <td style="color:#94a3b8;font-size:.8rem;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{b["nome"]}</td>
+          <td style="color:#94a3b8">{b["tour_dt"] or "—"}</td>
+          <td style="color:#94a3b8;font-size:.8rem;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{b["nome"]}</td>
         </tr>"""
 
-    book_rows = ""
-    for b in rz["tabela"]:
-        st_class = ("badge-green" if b["status"] == "CONFIRMED"
-                    else "badge-red" if b["status"] == "ABANDONED_CART"
-                    else "badge-amber")
-        coupon_html = (f'<span class="badge badge-blue">{b["coupon"]}</span>'
-                       if b["coupon"] else "")
-        book_rows += f"""<tr>
-          <td style="font-family:monospace;font-size:0.78rem">{b["numero"]}</td>
-          <td><span class="badge {st_class}">{b["status"].replace("_"," ")}</span></td>
-          <td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{b["produto"]}</td>
-          <td style="text-align:right;font-weight:500">{fmt_brl(b["valor"])}</td>
-          <td style="color:#94a3b8">{b["data"]}</td>
-          <td style="font-size:0.75rem;color:#94a3b8">{b["fonte"]}</td>
-          <td>{coupon_html}</td>
-        </tr>"""
+    total_cupom_str = f'{len(rz["voos_cupom"])} voos · {len(rz["cupom_resumo"])} cupons'
+
 
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -577,12 +638,37 @@ def gerar_html(meta, rezdy_dados, atualizado_em):
             <th style="text-align:right">Cliques</th>
             <th style="text-align:right">CTR</th>
             <th style="text-align:right">CPC</th>
-            <th style="text-align:right" title="Conversas iniciadas (conversation_started_7d)">Conv. Iniciadas</th>
-            <th style="text-align:right" title="Total messaging connections">Conexões</th>
-            <th style="text-align:right" title="Bloqueios de mensagem">Bloqueios</th>
+            <th style="text-align:right" title="conversation_started_7d">Msg. Iniciadas</th>
+            <th style="text-align:right" title="Gasto ÷ mensagens iniciadas">Custo/Msg</th>
+            <th style="text-align:right" title="omni_add_to_cart">Adic. Carrinho</th>
+            <th style="text-align:right" title="Gasto ÷ adições ao carrinho">Custo/Carrinho</th>
           </tr>
         </thead>
-        <tbody>{camps_rows}</tbody>
+        <tbody id="camps-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Criativos -->
+  <div class="card mt-5">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div style="font-weight:600;font-size:.9rem">🎨 Criativos — últimos 30 dias</div>
+      <span class="badge badge-gray">agrupado por tipo · clique no grupo para minimizar</span>
+    </div>
+    <div id="criativos-content" style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:140px">ID Criativo</th>
+            <th>Nome do Anúncio</th>
+            <th style="text-align:right">Impressões</th>
+            <th style="text-align:right">CTR</th>
+            <th style="text-align:right">CPC</th>
+            <th style="text-align:right" title="Custo por mensagem (MSG) ou por adição ao carrinho (CONV/TRAF)">Custo/Resultado</th>
+            <th style="text-align:right">Resultados</th>
+          </tr>
+        </thead>
+        <tbody id="criativos-body"></tbody>
       </table>
     </div>
   </div>
@@ -593,12 +679,13 @@ def gerar_html(meta, rezdy_dados, atualizado_em):
 <!-- ═══════════════════════════ REZDY ════════════════════════════════════ -->
 <div id="tab-rezdy" class="tab-content pt-3" style="display:none">
 
-  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+  <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
     <div class="card"><div class="kpi-label">Total Reservas</div><div class="kpi-val" id="rk-total">{rz["total"]}</div></div>
     <div class="card"><div class="kpi-label">Confirmadas</div><div class="kpi-val" id="rk-conf" style="color:var(--green)">{rz["confirmadas"]}</div></div>
+    <div class="card"><div class="kpi-label">Voos Realizados</div><div class="kpi-val" id="rk-fulfilments" style="color:var(--cyan)">{rz["fulfilments"]}</div></div>
     <div class="card"><div class="kpi-label">Abandonadas</div><div class="kpi-val" id="rk-aband" style="color:var(--red)">{rz["abandonadas"]}</div></div>
-    <div class="card"><div class="kpi-label">Receita</div><div class="kpi-val" id="rk-receita" style="color:var(--green);font-size:1.3rem">{fmt_brl(rz["receita"])}</div></div>
-    <div class="card"><div class="kpi-label">Ticket Médio</div><div class="kpi-val" id="rk-ticket" style="font-size:1.4rem">{fmt_brl(rz["ticket_medio"])}</div></div>
+    <div class="card"><div class="kpi-label">Receita</div><div class="kpi-val" id="rk-receita" style="color:var(--green);font-size:1.2rem">{fmt_brl(rz["receita"])}</div></div>
+    <div class="card"><div class="kpi-label">Ticket Médio</div><div class="kpi-val" id="rk-ticket" style="font-size:1.3rem">{fmt_brl(rz["ticket_medio"])}</div></div>
     <div class="card"><div class="kpi-label">Taxa Conversão</div><div class="kpi-val" id="rk-taxa" style="color:var(--cyan)">{fmt_pct(rz["taxa_conv"])}</div></div>
   </div>
 
@@ -607,67 +694,110 @@ def gerar_html(meta, rezdy_dados, atualizado_em):
     <div class="card"><div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Receita Diária Confirmada</div><canvas id="chartRezdyReceita" height="200"></canvas></div>
   </div>
 
+  <!-- Heatmap: mês da reserva × mês do voo -->
+  <div class="card mb-5">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div style="font-weight:600;font-size:.9rem">📅 Quando Reservaram → Para Qual Mês Voaram?</div>
+      <span class="badge badge-gray">linhas = mês da reserva · colunas = mês do voo · cor = volume</span>
+    </div>
+    <div style="overflow-x:auto">
+      <div id="heatmap-container"></div>
+    </div>
+  </div>
+
+  <!-- Público: Top Países -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+    <div class="card">
+      <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">🌍 Público — Top Países</div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>País</th>
+            <th style="text-align:right">Bookings</th>
+            <th style="text-align:right">PAX</th>
+            <th style="text-align:right">Receita</th>
+            <th style="text-align:right">% Bookings</th>
+          </tr></thead>
+          <tbody id="paises-body"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">🏆 Maiores Clientes (por receita)</div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Cliente</th>
+            <th>País</th>
+            <th style="text-align:right">Bookings</th>
+            <th style="text-align:right">PAX</th>
+            <th style="text-align:right">Total Gasto</th>
+          </tr></thead>
+          <tbody id="top-clientes-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div class="card mb-5">
     <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Por Produto</div>
     <div style="overflow-x:auto">
       <table>
         <thead><tr><th>Produto</th><th style="text-align:right">Ordens</th><th style="text-align:right">Confirmadas</th><th style="text-align:right">Receita</th><th style="text-align:right">Tx Conv.</th></tr></thead>
-        <tbody>{prod_rows}</tbody>
+        <tbody id="prod-body"></tbody>
       </table>
     </div>
   </div>
 
-  <!-- Cupons -->
+  <!-- ── Voos Confirmados via Cupom ─────────────────────────────────────── -->
   <div class="card mb-5">
     <div class="flex items-center gap-3 mb-4 flex-wrap">
       <div style="font-weight:600;font-size:.9rem">Voos Confirmados via Cupom</div>
-      <span class="badge badge-blue">{len(rz["voos_cupom"])} voos · {len(rz["cupom_resumo"])} cupons distintos</span>
+      <span class="badge badge-blue">{total_cupom_str}</span>
     </div>
 
-    {'<p style="color:#94a3b8;font-size:.85rem">Nenhum voo confirmado com cupom no período.</p>' if not rz["voos_cupom"] else f"""
-    <!-- Resumo por cupom -->
-    <div style="font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Resumo por cupom</div>
+    {'<p style="color:#94a3b8;font-size:.85rem;padding:8px 0">Nenhum voo confirmado com cupom no período.</p>' if not rz["voos_cupom"] else f"""
+    <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Resumo por cupom</div>
     <div style="overflow-x:auto;margin-bottom:20px">
       <table>
-        <thead>
-          <tr>
-            <th>Cupom</th>
-            <th style="text-align:right">Voos Conf.</th>
-            <th style="text-align:right">Receita Total</th>
-            <th style="text-align:right">Ticket Médio</th>
-            <th>Produto Principal</th>
-          </tr>
-        </thead>
+        <thead><tr>
+          <th>Cupom</th>
+          <th style="text-align:right">Voos Conf.</th>
+          <th style="text-align:right">Receita Total</th>
+          <th style="text-align:right">Ticket Médio</th>
+          <th>Produto Principal</th>
+        </tr></thead>
         <tbody>{cupom_resumo_rows}</tbody>
       </table>
     </div>
 
-    <!-- Detalhe por voo -->
-    <div style="font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detalhe por voo</div>
+    <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detalhe por voo</div>
     <div style="overflow-x:auto">
       <table>
-        <thead>
-          <tr>
-            <th>Nº Pedido</th>
-            <th>Cupom</th>
-            <th>Produto</th>
-            <th style="text-align:right">Pax</th>
-            <th style="text-align:right">Valor</th>
-            <th>Data</th>
-            <th>Cliente</th>
-          </tr>
-        </thead>
+        <thead><tr>
+          <th>Nº Pedido</th><th>Cupom</th><th>Produto</th>
+          <th style="text-align:right">Pax</th>
+          <th style="text-align:right">Valor</th>
+          <th>Reservado</th><th>Voo</th><th>Cliente</th>
+        </tr></thead>
         <tbody>{cupom_detail_rows}</tbody>
       </table>
     </div>"""}
   </div>
 
+  <!-- ── Últimas Reservas ────────────────────────────────────────────────── -->
   <div class="card">
     <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Últimas Reservas</div>
     <div style="overflow-x:auto">
       <table>
-        <thead><tr><th>Nº Pedido</th><th>Status</th><th>Produto</th><th style="text-align:right">Valor</th><th>Data</th><th>Fonte</th><th>Cupom</th></tr></thead>
-        <tbody>{book_rows}</tbody>
+        <thead><tr>
+          <th>Nº Pedido</th><th>Status</th><th>Produto</th>
+          <th style="text-align:right">PAX</th>
+          <th style="text-align:right">Valor</th>
+          <th>Reservado em</th><th>Voo em</th>
+          <th>Fonte</th><th>País</th>
+        </tr></thead>
+        <tbody id="book-body"></tbody>
       </table>
     </div>
   </div>
@@ -682,12 +812,15 @@ def gerar_html(meta, rezdy_dados, atualizado_em):
 
 <!-- ═══════════════════════════ DATA ══════════════════════════════════════ -->
 <script>
-const META_DATA  = {meta_json};
-const REZDY_DATA = {rezdy_json};
-const CAMPS_DATA = {camps_json};
-const HOJE       = "{hoje_str}";
-const D30_FROM   = "{d30_str}";
-const D90_FROM   = "{d90_str}";
+const META_DATA    = {meta_json};
+const REZDY_DATA   = {rezdy_json};
+const CAMPS_DIARIO = {camps_diario_json};
+const BOOKINGS     = {bookings_json};
+const HEATMAP      = {heatmap_json};
+const CRIATIVOS    = {criativos_json};
+const HOJE         = "{hoje_str}";
+const D30_FROM     = "{d30_str}";
+const D90_FROM     = "{d90_str}";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fBRL = v => 'R$ ' + Number(v).toLocaleString('pt-BR',{{minimumFractionDigits:2,maximumFractionDigits:2}});
@@ -846,6 +979,9 @@ function applyDateRange(from, to) {{
   setText('rk-receita',fBRL(rRec));
   setText('rk-ticket', fBRL(rTick));
   setText('rk-taxa',   fPct(rTaxa));
+  // Voos realizados: confirmados cujo tour_date < hoje
+  const rFulfilments = BOOKINGS.filter(b => b.d >= from && b.d <= to && b.s === 'CONFIRMED' && b.t && b.t < HOJE).length;
+  setText('rk-fulfilments', rFulfilments);
 
   // ── Update charts ──
   const mLabels = mDays.map(d=>d.data.slice(5));
@@ -855,39 +991,289 @@ function applyDateRange(from, to) {{
   buildRezdyDiario('chartRezdyDiario2', rDays);
   buildRezdyReceita('chartRezdyReceita', rDays);
 
+  // ── Tabelas e gráficos dinâmicos ──
+  renderCampanhas(from, to);
+  renderProdutos(from, to);
+  renderBookings(from, to);
+  renderPaises(from, to);
+
   // ── Range label ──
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   setText('range-label', days + ' dias selecionados');
 }}
 
-// ─── Produtos + Campanhas (estáticos) ─────────────────────────────────────────
-makeChart('chartProdutos', {{
-  type:'doughnut',
-  data:{{
-    labels: {prod_nomes},
-    datasets:[{{data:{prod_receita}, backgroundColor:['#6366f1','#22c55e','#06b6d4','#f59e0b','#ec4899','#8b5cf6','#14b8a6','#f97316'], borderWidth:0, hoverOffset:6}}]
-  }},
-  options:{{
-    responsive:true,
-    plugins:{{
-      legend:{{position:'right',labels:{{boxWidth:12,padding:12}}}},
-      tooltip:{{callbacks:{{label:ctx=>ctx.label+': '+fBRL(ctx.raw)}}}}
+// ─── Render dinâmico de campanhas, produtos e bookings ───────────────────────
+
+function renderCampanhas(from, to) {{
+  const agg = {{}};
+  for (const camp of CAMPS_DIARIO) {{
+    agg[camp.id] = {{nome: camp.nome, g:0, i:0, c:0, m:0, a:0}};
+    for (const [data, d] of Object.entries(camp.daily)) {{
+      if (data >= from && data <= to) {{
+        agg[camp.id].g += d.g; agg[camp.id].i += d.i;
+        agg[camp.id].c += d.c; agg[camp.id].m += d.m; agg[camp.id].a += d.a;
+      }}
     }}
   }}
-}});
+  const camps = Object.values(agg).filter(c=>c.g>0).sort((a,b)=>b.g-a.g);
+  const tbody = document.getElementById('camps-body');
+  if (!tbody) return;
+  tbody.innerHTML = camps.map(c => {{
+    const tipo = c.nome.includes('[MSG]')?'MSG':c.nome.includes('[CONV]')?'CONV':'TRAF';
+    const tc   = tipo==='CONV'?'#6366f1':tipo==='MSG'?'#22c55e':'#06b6d4';
+    const ctr  = c.i ? c.c/c.i*100 : 0;
+    const cpc  = c.c ? c.g/c.c     : 0;
+    const cm   = c.m ? c.g/c.m     : 0;
+    const ca   = c.a ? c.g/c.a     : 0;
+    return `<tr>
+      <td><span style="font-size:.65rem;font-weight:700;padding:1px 6px;border-radius:4px;background:${{tc}}22;color:${{tc}};margin-right:6px">${{tipo}}</span><span style="font-weight:500">${{c.nome.slice(0,55)}}</span></td>
+      <td style="text-align:right;color:#6366f1;font-weight:600">${{fBRL(c.g)}}</td>
+      <td style="text-align:right">${{fN(c.i)}}</td>
+      <td style="text-align:right">${{fN(c.c)}}</td>
+      <td style="text-align:right;color:#06b6d4">${{ctr.toFixed(2)}}%</td>
+      <td style="text-align:right">${{fBRL(cpc)}}</td>
+      <td style="text-align:right;color:#22c55e;font-weight:600">${{fN(c.m)}}</td>
+      <td style="text-align:right;color:#94a3b8">${{cm ? fBRL(cm) : '—'}}</td>
+      <td style="text-align:right;color:#6366f1;font-weight:600">${{fN(c.a)}}</td>
+      <td style="text-align:right;color:#94a3b8">${{ca ? fBRL(ca) : '—'}}</td>
+    </tr>`;
+  }}).join('');
 
-makeChart('chartCampanhas', {{
-  type:'bar',
-  data:{{
-    labels:{camp_nomes},
-    datasets:[{{label:'Gasto (R$)', data:{camp_gastos}, backgroundColor:'rgba(99,102,241,.75)', borderRadius:4}}]
-  }},
-  options:{{
-    indexAxis:'y', responsive:true,
-    plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{label:ctx=>fBRL(ctx.raw)}}}}}},
-    scales:{{x:{{grid:{{color:'rgba(51,65,85,.4)'}},ticks:{{callback:v=>'R$'+v.toLocaleString('pt-BR')}}}},y:{{grid:{{display:false}}}}}}
+  // Gráfico gasto por campanha
+  const top7 = camps.slice(0,7);
+  makeChart('chartCampanhas',{{
+    type:'bar',
+    data:{{labels:top7.map(c=>c.nome.slice(0,35)),datasets:[{{label:'Gasto (R$)',data:top7.map(c=>c.g),backgroundColor:'rgba(99,102,241,.75)',borderRadius:4}}]}},
+    options:{{indexAxis:'y',responsive:true,plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{label:ctx=>fBRL(ctx.raw)}}}}}},scales:{{x:{{grid:{{color:'rgba(51,65,85,.4)'}},ticks:{{callback:v=>'R$'+v.toLocaleString('pt-BR')}}}},y:{{grid:{{display:false}}}}}}}}
+  }});
+}}
+
+function renderProdutos(from, to) {{
+  const bk = BOOKINGS.filter(b => b.d >= from && b.d <= to);
+  const prods = {{}};
+  for (const b of bk) {{
+    if (!prods[b.p]) prods[b.p] = {{o:0, conf:0, rec:0}};
+    prods[b.p].o++;
+    prods[b.p].rec += b.v;
+    if (b.s === 'CONFIRMED') prods[b.p].conf++;
   }}
-}});
+  const lista = Object.entries(prods).sort((a,b)=>b[1].rec-a[1].rec);
+  const tbody = document.getElementById('prod-body');
+  if (tbody) tbody.innerHTML = lista.map(([nome,p])=>{{
+    const tx = p.o ? (p.conf/p.o*100).toFixed(1) : 0;
+    return `<tr><td style="font-weight:500">${{nome}}</td><td style="text-align:right">${{p.o}}</td><td style="text-align:right"><span class="badge badge-green">${{p.conf}}</span></td><td style="text-align:right;color:#22c55e">${{fBRL(p.rec)}}</td><td style="text-align:right">${{tx}}%</td></tr>`;
+  }}).join('');
+
+  // Gráfico donut de produtos
+  const top8 = lista.slice(0,8);
+  makeChart('chartProdutos',{{
+    type:'doughnut',
+    data:{{labels:top8.map(([n])=>n.slice(0,30)),datasets:[{{data:top8.map(([,p])=>p.rec),backgroundColor:['#6366f1','#22c55e','#06b6d4','#f59e0b','#ec4899','#8b5cf6','#14b8a6','#f97316'],borderWidth:0,hoverOffset:6}}]}},
+    options:{{responsive:true,plugins:{{legend:{{position:'right',labels:{{boxWidth:12,padding:12}}}},tooltip:{{callbacks:{{label:ctx=>ctx.label+': '+fBRL(ctx.raw)}}}}}}}}
+  }});
+}}
+
+const _criativosCollapsed = {{MSG:false, CONV:false, TRAF:false}};
+
+function toggleCriativosTipo(tipo) {{
+  _criativosCollapsed[tipo] = !_criativosCollapsed[tipo];
+  const rows  = document.querySelectorAll(`[data-criativos="${{tipo}}"]`);
+  const icon  = document.getElementById(`criativos-icon-${{tipo}}`);
+  const label = document.getElementById(`criativos-label-${{tipo}}`);
+  const hidden = _criativosCollapsed[tipo];
+  rows.forEach(r => r.style.display = hidden ? 'none' : '');
+  if (icon)  icon.textContent  = hidden ? '▼' : '▲';
+  if (label) label.textContent = hidden ? 'Expandir' : 'Minimizar';
+}}
+
+function renderCriativos() {{
+  const TIPO_COLOR = {{MSG:'#22c55e', CONV:'#6366f1', TRAF:'#06b6d4'}};
+  const TIPO_LABEL = {{MSG:'Mensagens', CONV:'Conversão / Carrinho', TRAF:'Tráfego'}};
+
+  const grupos = {{MSG:[], CONV:[], TRAF:[]}};
+  for (const a of CRIATIVOS) {{
+    const t = a.camp.includes('[MSG]') ? 'MSG' : a.camp.includes('[CONV]') ? 'CONV' : 'TRAF';
+    grupos[t].push({{...a, tipo:t}});
+  }}
+
+  let html = '';
+  for (const tipo of ['MSG','CONV','TRAF']) {{
+    const ads = grupos[tipo];
+    if (!ads.length) continue;
+    const tc      = TIPO_COLOR[tipo];
+    const hidden  = _criativosCollapsed[tipo];
+    html += `<tr style="background:rgba(99,102,241,.07);cursor:pointer" onclick="toggleCriativosTipo('${{tipo}}')">
+      <td colspan="7" style="padding:10px 12px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-weight:700;font-size:.72rem;color:${{tc}};letter-spacing:.06em;text-transform:uppercase">
+            ${{TIPO_LABEL[tipo]}} &nbsp;·&nbsp; ${{ads.length}} criativos
+          </span>
+          <span style="font-size:.7rem;color:#94a3b8;display:flex;align-items:center;gap:4px;user-select:none">
+            <span id="criativos-icon-${{tipo}}">${{hidden ? '▼' : '▲'}}</span>
+            <span id="criativos-label-${{tipo}}">${{hidden ? 'Expandir' : 'Minimizar'}}</span>
+          </span>
+        </div>
+      </td>
+    </tr>`;
+    for (const a of ads) {{
+      const isMsg      = tipo === 'MSG';
+      const resultado  = isMsg ? a.msg : a.cart;
+      const custo_res  = resultado ? fBRL(a.gasto / resultado) : '—';
+      const res_label  = resultado ? `${{resultado}} ${{isMsg ? 'msg' : 'cart'}}` : '—';
+      html += `<tr data-criativos="${{tipo}}" style="${{hidden ? 'display:none' : ''}}">
+        <td style="font-family:monospace;font-size:.7rem;color:#94a3b8;white-space:nowrap">${{a.id}}</td>
+        <td style="font-size:.82rem;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{a.nome}}">${{a.nome.slice(0,55)}}</td>
+        <td style="text-align:right">${{fN(a.impr)}}</td>
+        <td style="text-align:right;color:#06b6d4">${{a.ctr.toFixed(2)}}%</td>
+        <td style="text-align:right">${{fBRL(a.cpc)}}</td>
+        <td style="text-align:right;color:#22c55e;font-weight:600">${{custo_res}}</td>
+        <td style="text-align:right;color:#94a3b8;font-size:.78rem">${{res_label}}</td>
+      </tr>`;
+    }}
+  }}
+  const el = document.getElementById('criativos-body');
+  if (el) el.innerHTML = html;
+}}
+
+function renderBookings(from, to) {{
+  const tbody = document.getElementById('book-body');
+  if (!tbody) return;
+  const rows = BOOKINGS.filter(b => b.d >= from && b.d <= to).slice(0,200);
+  tbody.innerHTML = rows.map(b => {{
+    const sc  = b.s==='CONFIRMED'?'badge-green':b.s==='ABANDONED_CART'?'badge-red':'badge-amber';
+    const flag = countryFlag(b.cc);
+    return `<tr>
+      <td style="font-family:monospace;font-size:.78rem">${{b.n}}</td>
+      <td><span class="badge ${{sc}}">${{b.s.replace(/_/g,' ')}}</span></td>
+      <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.p}}</td>
+      <td style="text-align:right;color:#94a3b8">${{b.px||1}}</td>
+      <td style="text-align:right;font-weight:500">${{fBRL(b.v)}}</td>
+      <td style="color:#94a3b8">${{b.d}}</td>
+      <td style="color:#06b6d4">${{b.t||'—'}}</td>
+      <td style="font-size:.75rem;color:#94a3b8">${{b.f}}</td>
+      <td style="font-size:.8rem" title="${{b.cc}}">${{flag}} ${{b.cc}}</td>
+    </tr>`;
+  }}).join('');
+}}
+
+function countryFlag(cc) {{
+  if (!cc || cc.length !== 2) return '';
+  return cc.toUpperCase().replace(/./g, c =>
+    String.fromCodePoint(0x1F1E6 - 65 + c.charCodeAt(0)));
+}}
+
+function renderPaises(from, to) {{
+  const bk = BOOKINGS.filter(b => b.d >= from && b.d <= to && b.s === 'CONFIRMED');
+  const paises = {{}};
+  let totalBookings = 0;
+  for (const b of bk) {{
+    const cc = b.cc || '??';
+    if (!paises[cc]) paises[cc] = {{ordens:0, pax:0, receita:0}};
+    paises[cc].ordens++;
+    paises[cc].pax += (b.px || 1);
+    paises[cc].receita += b.v;
+    totalBookings++;
+  }}
+  const sorted = Object.entries(paises).sort((a,b) => b[1].ordens - a[1].ordens).slice(0,20);
+  const tbody = document.getElementById('paises-body');
+  if (!tbody) return;
+  tbody.innerHTML = sorted.map(([cc, v]) => {{
+    const flag = countryFlag(cc);
+    const pct  = totalBookings ? (v.ordens/totalBookings*100).toFixed(1) : '0.0';
+    return `<tr>
+      <td><span style="margin-right:4px">${{flag}}</span>${{cc.toUpperCase()}}</td>
+      <td style="text-align:right;font-weight:600">${{v.ordens}}</td>
+      <td style="text-align:right;color:#94a3b8">${{v.pax}}</td>
+      <td style="text-align:right">${{fBRL(v.receita)}}</td>
+      <td style="text-align:right">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <div style="background:#6366f1;height:6px;border-radius:3px;width:${{Math.round(parseFloat(pct)*.8)}}px"></div>
+          ${{pct}}%
+        </div>
+      </td>
+    </tr>`;
+  }}).join('');
+
+  // Top clientes
+  const clientes = {{}};
+  for (const b of bk) {{
+    const k = b.n.slice(0,4) + '…'; // anonimizado por pedido
+  }}
+  // Agrega por hash simples da ordem (top 15 por receita)
+  const clienteMap = {{}};
+  for (const b of BOOKINGS.filter(x => x.d >= from && x.d <= to && x.s === 'CONFIRMED')) {{
+    const key = b.n;
+    if (!clienteMap[key]) clienteMap[key] = {{n: b.n, cc: b.cc, ordens:0, pax:0, receita:0}};
+    clienteMap[key].ordens++;
+    clienteMap[key].pax   += (b.px||1);
+    clienteMap[key].receita += b.v;
+  }}
+  // Rezdy: cada booking é 1 cliente, mas repetidos têm mesmo orderNumber
+  // Top por receita
+  const topCli = Object.values(clienteMap).sort((a,b)=>b.receita-a.receita).slice(0,15);
+  const tbody2 = document.getElementById('top-clientes-body');
+  if (tbody2) {{
+    tbody2.innerHTML = topCli.map((c,i) => {{
+      const flag = countryFlag(c.cc);
+      return `<tr>
+        <td style="font-family:monospace;font-size:.78rem">${{c.n}}</td>
+        <td><span style="margin-right:4px">${{flag}}</span>${{c.cc||'??'}}</td>
+        <td style="text-align:right">${{c.ordens}}</td>
+        <td style="text-align:right;color:#94a3b8">${{c.pax}}</td>
+        <td style="text-align:right;font-weight:600;color:#22c55e">${{fBRL(c.receita)}}</td>
+      </tr>`;
+    }}).join('');
+  }}
+}}
+
+function renderHeatmap() {{
+  const MONTHS_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const allCreated = Object.keys(HEATMAP).sort();
+  // Collect all tour months
+  const tourSet = new Set();
+  for (const row of Object.values(HEATMAP)) Object.keys(row).forEach(m => tourSet.add(m));
+  const allTour = [...tourSet].sort();
+  if (!allCreated.length) return;
+
+  // Max for color scale
+  let maxVal = 0;
+  for (const row of Object.values(HEATMAP))
+    for (const v of Object.values(row)) if (v > maxVal) maxVal = v;
+
+  const fmtYM = ym => {{
+    const [y,m] = ym.split('-');
+    return MONTHS_PT[parseInt(m)-1] + '/' + y.slice(2);
+  }};
+  const heatColor = v => {{
+    if (!v) return 'background:#1e293b;color:#334155';
+    const t = v / maxVal;
+    const r = Math.round(30 + t * 79);
+    const g = Math.round(41 + t * 60);
+    const b = Math.round(99 + t * 156);
+    const fg = t > 0.5 ? '#fff' : '#c4b5fd';
+    return `background:rgb(${{r}},${{g}},${{b}});color:${{fg}};font-weight:${{t>0.3?'600':'400'}}`;
+  }};
+
+  let tbl = '<table style="border-collapse:separate;border-spacing:2px;font-size:.72rem;min-width:max-content">';
+  // Header row
+  tbl += '<thead><tr>';
+  tbl += '<th style="padding:4px 10px;text-align:left;color:#94a3b8;font-weight:500">Reservou em ↓ Voou em →</th>';
+  for (const tm of allTour) {{
+    tbl += `<th style="padding:4px 8px;text-align:center;color:#94a3b8;font-weight:500;white-space:nowrap">${{fmtYM(tm)}}</th>`;
+  }}
+  tbl += '</tr></thead><tbody>';
+  for (const cm of allCreated) {{
+    tbl += `<tr><td style="padding:4px 10px;color:#94a3b8;white-space:nowrap;font-weight:500">${{fmtYM(cm)}}</td>`;
+    for (const tm of allTour) {{
+      const v = (HEATMAP[cm] || {{}})[tm] || 0;
+      tbl += `<td style="padding:6px 8px;text-align:center;border-radius:4px;${{heatColor(v)}};min-width:44px">${{v||''}}</td>`;
+    }}
+    tbl += '</tr>';
+  }}
+  tbl += '</tbody></table>';
+  const el = document.getElementById('heatmap-container');
+  if (el) el.innerHTML = tbl;
+}}
 
 // ─── Init flatpickr ───────────────────────────────────────────────────────────
 flatpickr.localize(flatpickr.l10ns.pt);
@@ -910,6 +1296,8 @@ flatpickr("#date-range", {{
 
 // ─── Init com últimos 30d ─────────────────────────────────────────────────────
 applyDateRange(D30_FROM, HOJE);
+renderCriativos();
+renderHeatmap();
 </script>
 </body>
 </html>"""
@@ -921,30 +1309,36 @@ def main():
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     print(f"\n=== Vertical Rio Dashboard — {agora} ===\n")
 
-    print("[ 1/5 ] Meta Ads — resumo 30d (API)...")
+    print("[ 1/7 ] Meta Ads — resumo 30d (API)...")
     d30 = buscar_meta_periodo("last_30d")
     print(f"       Gasto R${d30['gasto']:,.2f} | CTR {d30['ctr']}% | Conv.Inic. {d30['conversas']}")
 
-    print("[ 2/5 ] Meta Ads — campanhas 30d...")
+    print("[ 2/7 ] Meta Ads — campanhas 30d...")
     campanhas = buscar_meta_campanhas("last_30d")
     print(f"       {len(campanhas)} campanhas")
-    for c in campanhas:
-        print(f"       {c['nome'][:50]:50s} | Conv.Inic.: {c['conversas']:3d} | Conexoes: {c['conexoes']:3d} | Bloq: {c['bloqueios']}")
 
-    print("[ 3/5 ] Meta Ads — diario 90d...")
+    print("[ 3/7 ] Meta Ads — diario conta 90d...")
     diario = buscar_meta_diario(90)
     print(f"       {len(diario)} dias")
 
-    print("[ 4/5 ] Rezdy — reservas...")
-    reservas = buscar_rezdy_reservas(800)
+    print("[ 4/7 ] Meta Ads — diário por campanha 90d...")
+    camps_diario = buscar_meta_diario_campanhas(90)
+    print(f"       {len(camps_diario)} campanhas × 90d")
+
+    print("[ 5/7 ] Meta Ads — criativos 30d...")
+    criativos = buscar_meta_criativos("last_30d")
+    print(f"       {len(criativos)} criativos ativos")
+
+    print("[ 6/7 ] Rezdy — reservas...")
+    reservas = buscar_rezdy_reservas(3000)
     print(f"       {len(reservas)} reservas")
 
-    print("[ 5/5 ] Processando e gerando HTML...")
+    print("[ 7/7 ] Processando e gerando HTML...")
     rezdy_dados = processar_rezdy(reservas, dias=90)
-    print(f"       90d: {rezdy_dados['confirmadas']} conf | R${rezdy_dados['receita']:,.2f}")
+    print(f"       90d: {rezdy_dados['confirmadas']} conf | R${rezdy_dados['receita']:,.2f} | {len(rezdy_dados['todos_bookings'])} bookings")
 
     meta = {"d30": d30, "campanhas": campanhas, "diario": diario}
-    html = gerar_html(meta, rezdy_dados, agora)
+    html = gerar_html(meta, rezdy_dados, camps_diario, criativos, agora)
 
     with open(ARQUIVO_HTML, "w", encoding="utf-8") as f:
         f.write(html)
