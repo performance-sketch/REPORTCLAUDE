@@ -239,6 +239,40 @@ def processar_rezdy(reservas, dias=90):
             "coupon":  b.get("coupon") or "",
         })
 
+    # Voos confirmados com cupom — qualquer cupom, todo o histórico disponível
+    voos_cupom = []
+    cupom_resumo = defaultdict(lambda: {"usos": 0, "receita": 0.0, "produtos": defaultdict(int)})
+    for b in sorted(recentes, key=lambda x: x.get("dateCreated", ""), reverse=True):
+        coupon = (b.get("coupon") or "").strip().upper()
+        if not coupon or b.get("status") != "CONFIRMED":
+            continue
+        itens   = b.get("items", [])
+        produto = itens[0].get("productName", "-") if itens else "-"
+        pax     = sum(
+            sum(q.get("value", 0) for q in item.get("quantities", []))
+            for item in itens
+        )
+        valor = float(b.get("totalAmount", 0) or 0)
+        voos_cupom.append({
+            "numero":  b.get("orderNumber", ""),
+            "coupon":  coupon,
+            "produto": produto,
+            "pax":     pax,
+            "valor":   round(valor, 2),
+            "data":    (b.get("dateCreated") or "")[:10],
+            "nome":    (b.get("customer") or {}).get("name", "-"),
+        })
+        cupom_resumo[coupon]["usos"]    += 1
+        cupom_resumo[coupon]["receita"] += valor
+        cupom_resumo[coupon]["produtos"][produto] += 1
+
+    cupom_resumo_lista = sorted(
+        [{"cupom": k, "usos": v["usos"], "receita": round(v["receita"], 2),
+          "produto_top": max(v["produtos"], key=v["produtos"].get) if v["produtos"] else "-"}
+         for k, v in cupom_resumo.items()],
+        key=lambda x: x["usos"], reverse=True,
+    )
+
     return {
         "total":        len(recentes),
         "confirmadas":  confirmadas_total,
@@ -253,6 +287,8 @@ def processar_rezdy(reservas, dias=90):
         "por_fonte":    {k: {"ordens": v["ordens"], "receita": round(v["receita"], 2)}
                          for k, v in por_fonte.items()},
         "tabela":       tabela,
+        "voos_cupom":        voos_cupom,
+        "cupom_resumo":      cupom_resumo_lista,
     }
 
 
@@ -307,6 +343,30 @@ def gerar_html(meta, rezdy_dados, atualizado_em):
           <td style="text-align:right"><span class="badge badge-green">{p["confirmadas"]}</span></td>
           <td style="text-align:right;color:#22c55e">{fmt_brl(p["receita"])}</td>
           <td style="text-align:right">{tx:.1f}%</td>
+        </tr>"""
+
+    # ── Tabela resumo por cupom ───────────────────────────────────────────────
+    cupom_resumo_rows = ""
+    for cr in rz["cupom_resumo"]:
+        cupom_resumo_rows += f"""<tr>
+          <td><span class="badge badge-blue" style="font-size:.8rem;padding:3px 10px">{cr["cupom"]}</span></td>
+          <td style="text-align:right;font-weight:700;color:#22c55e">{cr["usos"]}</td>
+          <td style="text-align:right;color:#22c55e;font-weight:600">{fmt_brl(cr["receita"])}</td>
+          <td style="text-align:right">{fmt_brl(cr["receita"] / cr["usos"] if cr["usos"] else 0)}</td>
+          <td style="color:#94a3b8;font-size:.8rem">{cr["produto_top"][:45]}</td>
+        </tr>"""
+
+    # ── Tabela detalhada voos confirmados com cupom ────────────────────────────
+    cupom_detail_rows = ""
+    for b in rz["voos_cupom"]:
+        cupom_detail_rows += f"""<tr>
+          <td style="font-family:monospace;font-size:.78rem">{b["numero"]}</td>
+          <td><span class="badge badge-blue">{b["coupon"]}</span></td>
+          <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{b["produto"]}</td>
+          <td style="text-align:right">{b["pax"] if b["pax"] else "—"}</td>
+          <td style="text-align:right;color:#22c55e;font-weight:600">{fmt_brl(b["valor"])}</td>
+          <td style="color:#94a3b8">{b["data"]}</td>
+          <td style="color:#94a3b8;font-size:.8rem;max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{b["nome"]}</td>
         </tr>"""
 
     book_rows = ""
@@ -555,6 +615,51 @@ def gerar_html(meta, rezdy_dados, atualizado_em):
         <tbody>{prod_rows}</tbody>
       </table>
     </div>
+  </div>
+
+  <!-- Cupons -->
+  <div class="card mb-5">
+    <div class="flex items-center gap-3 mb-4 flex-wrap">
+      <div style="font-weight:600;font-size:.9rem">Voos Confirmados via Cupom</div>
+      <span class="badge badge-blue">{len(rz["voos_cupom"])} voos · {len(rz["cupom_resumo"])} cupons distintos</span>
+    </div>
+
+    {'<p style="color:#94a3b8;font-size:.85rem">Nenhum voo confirmado com cupom no período.</p>' if not rz["voos_cupom"] else f"""
+    <!-- Resumo por cupom -->
+    <div style="font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Resumo por cupom</div>
+    <div style="overflow-x:auto;margin-bottom:20px">
+      <table>
+        <thead>
+          <tr>
+            <th>Cupom</th>
+            <th style="text-align:right">Voos Conf.</th>
+            <th style="text-align:right">Receita Total</th>
+            <th style="text-align:right">Ticket Médio</th>
+            <th>Produto Principal</th>
+          </tr>
+        </thead>
+        <tbody>{cupom_resumo_rows}</tbody>
+      </table>
+    </div>
+
+    <!-- Detalhe por voo -->
+    <div style="font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detalhe por voo</div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>Nº Pedido</th>
+            <th>Cupom</th>
+            <th>Produto</th>
+            <th style="text-align:right">Pax</th>
+            <th style="text-align:right">Valor</th>
+            <th>Data</th>
+            <th>Cliente</th>
+          </tr>
+        </thead>
+        <tbody>{cupom_detail_rows}</tbody>
+      </table>
+    </div>"""}
   </div>
 
   <div class="card">
