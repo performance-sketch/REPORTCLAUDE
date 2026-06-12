@@ -373,6 +373,33 @@ def processar_rezdy(reservas, dias=90):
         key=lambda x: x["usos"], reverse=True,
     )
 
+    # ── Status por cupom: confirmados + abandonados + cancelados ──────────────
+    cupom_status = defaultdict(lambda: {"CONFIRMED": 0, "ABANDONED_CART": 0, "CANCELLED": 0, "outros": 0})
+    for b in recentes:
+        coupon = (b.get("coupon") or "").strip().upper()
+        if not coupon:
+            continue
+        status = b.get("status", "")
+        if status == "CONFIRMED":
+            cupom_status[coupon]["CONFIRMED"] += 1
+        elif status == "ABANDONED_CART":
+            cupom_status[coupon]["ABANDONED_CART"] += 1
+        elif status == "CANCELLED":
+            cupom_status[coupon]["CANCELLED"] += 1
+        else:
+            cupom_status[coupon]["outros"] += 1
+
+    cupom_status_lista = sorted(
+        [{"cupom": k,
+          "conf":   v["CONFIRMED"],
+          "aband":  v["ABANDONED_CART"],
+          "canc":   v["CANCELLED"],
+          "outros": v["outros"],
+          "total":  v["CONFIRMED"] + v["ABANDONED_CART"] + v["CANCELLED"] + v["outros"]}
+         for k, v in cupom_status.items()],
+        key=lambda x: x["total"], reverse=True,
+    )
+
     return {
         "total":          len(recentes),
         "confirmadas":    confirmadas_total,
@@ -389,8 +416,9 @@ def processar_rezdy(reservas, dias=90):
                            for k, v in por_fonte.items()},
         "todos_bookings": todos_bookings,
         "heatmap":        heatmap_dict,
-        "voos_cupom":     voos_cupom,
-        "cupom_resumo":   cupom_resumo_lista,
+        "voos_cupom":      voos_cupom,
+        "cupom_resumo":    cupom_resumo_lista,
+        "cupom_status":    cupom_status_lista,
     }
 
 
@@ -400,16 +428,17 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
     rz  = rezdy_dados
 
     # Remove campos pesados de rezdy_json (embutidos separado)
-    _excluir = ("todos_bookings", "heatmap", "voos_cupom", "cupom_resumo")
+    _excluir = ("todos_bookings", "heatmap", "voos_cupom", "cupom_resumo", "cupom_status")
     rz_slim = {k: v for k, v in rz.items() if k not in _excluir}
-    meta_json        = json.dumps(meta,                   ensure_ascii=False)
-    rezdy_json       = json.dumps(rz_slim,                ensure_ascii=False)
-    camps_diario_json= json.dumps(camps_diario,           ensure_ascii=False)
-    bookings_json    = json.dumps(rz["todos_bookings"],   ensure_ascii=False)
-    heatmap_json     = json.dumps(rz["heatmap"],          ensure_ascii=False)
-    criativos_json   = json.dumps(criativos,              ensure_ascii=False)
-    voos_cupom_json  = json.dumps(rz["voos_cupom"],       ensure_ascii=False)
-    cupom_resumo_json= json.dumps(rz["cupom_resumo"],     ensure_ascii=False)
+    meta_json         = json.dumps(meta,                   ensure_ascii=False)
+    rezdy_json        = json.dumps(rz_slim,                ensure_ascii=False)
+    camps_diario_json = json.dumps(camps_diario,           ensure_ascii=False)
+    bookings_json     = json.dumps(rz["todos_bookings"],   ensure_ascii=False)
+    heatmap_json      = json.dumps(rz["heatmap"],          ensure_ascii=False)
+    criativos_json    = json.dumps(criativos,              ensure_ascii=False)
+    voos_cupom_json   = json.dumps(rz["voos_cupom"],       ensure_ascii=False)
+    cupom_resumo_json = json.dumps(rz["cupom_resumo"],     ensure_ascii=False)
+    cupom_status_json = json.dumps(rz["cupom_status"],     ensure_ascii=False)
 
     hoje_str   = datetime.now().strftime("%Y-%m-%d")
     d30_str    = (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d")
@@ -752,7 +781,22 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
     </div>
 
     <div id="cupom-tabelas">
-      <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Resumo por cupom</div>
+      <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Status por cupom</div>
+      <div style="overflow-x:auto;margin-bottom:20px">
+        <table>
+          <thead><tr>
+            <th>Cupom</th>
+            <th style="text-align:right">✅ Confirmados</th>
+            <th style="text-align:right">❌ Abandonados</th>
+            <th style="text-align:right">🚫 Cancelados</th>
+            <th style="text-align:right">Total</th>
+            <th style="text-align:right">Taxa Conv.</th>
+          </tr></thead>
+          <tbody id="cupom-status-body"></tbody>
+        </table>
+      </div>
+
+      <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Resumo por cupom (confirmados)</div>
       <div style="overflow-x:auto;margin-bottom:20px">
         <table>
           <thead><tr>
@@ -815,6 +859,7 @@ const BOOKINGS     = {bookings_json};
 const HEATMAP      = {heatmap_json};
 const CRIATIVOS    = {criativos_json};
 const VOOS_CUPOM   = {voos_cupom_json};
+const CUPOM_STATUS = {cupom_status_json};
 const HOJE         = "{hoje_str}";
 const D30_FROM     = "{d30_str}";
 const D90_FROM     = "{d90_str}";
@@ -1176,7 +1221,7 @@ function renderCriativos() {{
 function renderCupons(from, to) {{
   const filtered = VOOS_CUPOM.filter(b => b.data >= from && b.data <= to);
 
-  // Agrega por cupom
+  // Agrega por cupom (confirmados)
   const agr = {{}};
   for (const b of filtered) {{
     if (!agr[b.coupon]) agr[b.coupon] = {{ usos:0, receita:0, produtos:{{}} }};
@@ -1210,7 +1255,31 @@ function renderCupons(from, to) {{
   if (vazio)   vazio.style.display   = 'none';
   if (tabelas) tabelas.style.display = 'block';
 
-  // Resumo por cupom
+  // ── Status por cupom (todos os status, período filtrado por data de criação) ──
+  const statusBody = document.getElementById('cupom-status-body');
+  if (statusBody) {{
+    statusBody.innerHTML = CUPOM_STATUS
+      .filter(cs => {{
+        // inclui apenas cupons que têm ao menos 1 booking no período (via confirmados filtrados)
+        const cuponsNoPeriodo = new Set(filtered.map(b => b.coupon));
+        return cuponsNoPeriodo.has(cs.cupom) || cs.conf > 0 || cs.aband > 0 || cs.canc > 0;
+      }})
+      .filter(cs => new Set(filtered.map(b => b.coupon)).has(cs.cupom))
+      .map(cs => {{
+        const taxa = cs.total ? Math.round(cs.conf / cs.total * 100) : 0;
+        const taxaColor = taxa >= 60 ? '#22c55e' : taxa >= 40 ? '#f59e0b' : '#ef4444';
+        return `<tr>
+          <td><span class="badge badge-blue" style="font-size:.82rem;padding:3px 10px">${{cs.cupom}}</span></td>
+          <td style="text-align:right;font-weight:700;color:#22c55e">${{cs.conf}}</td>
+          <td style="text-align:right;color:#ef4444">${{cs.aband}}</td>
+          <td style="text-align:right;color:#94a3b8">${{cs.canc}}</td>
+          <td style="text-align:right;font-weight:600">${{cs.total}}</td>
+          <td style="text-align:right;font-weight:700;color:${{taxaColor}}">${{taxa}}%</td>
+        </tr>`;
+      }}).join('');
+  }}
+
+  // Resumo por cupom (confirmados)
   const resumoBody = document.getElementById('cupom-resumo-body');
   if (resumoBody) {{
     resumoBody.innerHTML = resumoList.map(cr => `
