@@ -1479,29 +1479,61 @@ renderHeatmap();
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
+def _extrair_meta_do_html():
+    """Lê META_DATA, CAMPS_DIARIO e CRIATIVOS do index.html existente (fallback)."""
+    import re
+    try:
+        with open(ARQUIVO_HTML, encoding="utf-8") as f:
+            src = f.read()
+        def _extract(var):
+            m = re.search(rf'const {var}\s*=\s*(\{{.*?\}});', src, re.S)
+            if not m:
+                m = re.search(rf'const {var}\s*=\s*(\[.*?\]);', src, re.S)
+            return json.loads(m.group(1)) if m else None
+        meta       = _extract("META_DATA")
+        camps_d    = _extract("CAMPS_DIARIO")
+        criativos  = _extract("CRIATIVOS")
+        return meta, camps_d, criativos
+    except Exception as e:
+        print(f"       AVISO: não foi possível extrair Meta do HTML: {e}")
+        return None, None, None
+
+
 def main():
+    import sys
+    rezdy_only = "--rezdy-only" in sys.argv
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     print(f"\n=== Vertical Rio Dashboard — {agora} ===\n")
 
-    print("[ 1/7 ] Meta Ads — resumo 30d (API)...")
-    d30 = buscar_meta_periodo("last_30d")
-    print(f"       Gasto R${d30['gasto']:,.2f} | CTR {d30['ctr']}% | Conv.Inic. {d30['conversas']}")
+    if rezdy_only:
+        print("[META ] Modo --rezdy-only: reutilizando dados Meta do HTML atual...")
+        meta, camps_diario, criativos = _extrair_meta_do_html()
+        if not meta:
+            print("       ERRO: não encontrou META_DATA no HTML. Rode sem --rezdy-only.")
+            sys.exit(1)
+        print(f"       Meta carregado do HTML existente.")
+    else:
+        print("[ 1/7 ] Meta Ads — resumo 30d (API)...")
+        d30 = buscar_meta_periodo("last_30d")
+        print(f"       Gasto R${d30['gasto']:,.2f} | CTR {d30['ctr']}% | Conv.Inic. {d30['conversas']}")
 
-    print("[ 2/7 ] Meta Ads — campanhas 30d...")
-    campanhas = buscar_meta_campanhas("last_30d")
-    print(f"       {len(campanhas)} campanhas")
+        print("[ 2/7 ] Meta Ads — campanhas 30d...")
+        campanhas = buscar_meta_campanhas("last_30d")
+        print(f"       {len(campanhas)} campanhas")
 
-    print("[ 3/7 ] Meta Ads — diario conta 90d...")
-    diario = buscar_meta_diario(90)
-    print(f"       {len(diario)} dias")
+        print("[ 3/7 ] Meta Ads — diario conta 90d...")
+        diario = buscar_meta_diario(90)
+        print(f"       {len(diario)} dias")
 
-    print("[ 4/7 ] Meta Ads — diário por campanha 90d...")
-    camps_diario = buscar_meta_diario_campanhas(90)
-    print(f"       {len(camps_diario)} campanhas × 90d")
+        print("[ 4/7 ] Meta Ads — diário por campanha 90d...")
+        camps_diario = buscar_meta_diario_campanhas(90)
+        print(f"       {len(camps_diario)} campanhas × 90d")
 
-    print("[ 5/7 ] Meta Ads — criativos 30d...")
-    criativos = buscar_meta_criativos("last_30d")
-    print(f"       {len(criativos)} criativos ativos")
+        print("[ 5/7 ] Meta Ads — criativos 30d...")
+        criativos = buscar_meta_criativos("last_30d")
+        print(f"       {len(criativos)} criativos ativos")
+
+        meta = {"d30": d30, "campanhas": campanhas, "diario": diario}
 
     print("[ 6/7 ] Rezdy — reservas...")
     reservas = buscar_rezdy_reservas(3000)
@@ -1511,7 +1543,6 @@ def main():
     rezdy_dados = processar_rezdy(reservas, dias=90)
     print(f"       90d: {rezdy_dados['confirmadas']} conf | R${rezdy_dados['receita']:,.2f} | {len(rezdy_dados['todos_bookings'])} bookings")
 
-    meta = {"d30": d30, "campanhas": campanhas, "diario": diario}
     html = gerar_html(meta, rezdy_dados, camps_diario, criativos, agora)
 
     with open(ARQUIVO_HTML, "w", encoding="utf-8") as f:
