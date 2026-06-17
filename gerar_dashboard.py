@@ -731,6 +731,11 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
         <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
           <span style="display:inline-block;width:22px;height:2px;background:#06b6d4;border-radius:2px"></span>Voos realizados
         </span>
+        <div style="display:flex;gap:4px">
+          <button onclick="setFulfilView('dia')"    id="fulfil-btn-dia"    class="tab-btn active" style="padding:3px 10px;font-size:.72rem">Dia</button>
+          <button onclick="setFulfilView('semana')" id="fulfil-btn-semana" class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Semana</button>
+          <button onclick="setFulfilView('mes')"    id="fulfil-btn-mes"    class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Mês</button>
+        </div>
       </div>
     </div>
     <canvas id="chartBookingVsFulfilment" height="190"></canvas>
@@ -1011,30 +1016,51 @@ function buildRezdyReceita(canvasId, rDays) {{
   }});
 }}
 
-function buildBookingVsFulfilment(canvasId, from, to) {{
-  // Gera array de todas as datas do intervalo
-  const dates = [];
-  const cur = new Date(from + 'T12:00:00');
-  const end = new Date(to   + 'T12:00:00');
-  while (cur <= end) {{ dates.push(cur.toISOString().slice(0,10)); cur.setDate(cur.getDate()+1); }}
+let _fulfilView = 'dia';
+let _fulfilFrom = '', _fulfilTo = '';
 
-  // Agrupa por data da reserva e por data do voo
+function setFulfilView(view) {{
+  _fulfilView = view;
+  ['dia','semana','mes'].forEach(v => {{
+    const btn = document.getElementById('fulfil-btn-' + v);
+    if (btn) btn.classList.toggle('active', v === view);
+  }});
+  buildBookingVsFulfilment('chartBookingVsFulfilment', _fulfilFrom, _fulfilTo);
+}}
+
+function buildBookingVsFulfilment(canvasId, from, to) {{
+  _fulfilFrom = from; _fulfilTo = to;
+
+  const bucket = date => {{
+    if (_fulfilView === 'dia') return date;
+    if (_fulfilView === 'semana') {{
+      const d = new Date(date + 'T12:00:00');
+      d.setDate(d.getDate() - d.getDay());
+      return d.toISOString().slice(0,10);
+    }}
+    return date.slice(0,7);
+  }};
+
+  const dispLabel = k => _fulfilView === 'mes' ? k : k.slice(5);
+
   const bookMap = {{}};
   const fulfMap = {{}};
   for (const b of BOOKINGS) {{
     if (b.s !== 'CONFIRMED') continue;
-    if (b.d >= from && b.d <= to)         bookMap[b.d] = (bookMap[b.d]||0) + 1;
-    if (b.t && b.t >= from && b.t <= to)  fulfMap[b.t] = (fulfMap[b.t]||0) + 1;
+    if (b.d >= from && b.d <= to) {{ const k = bucket(b.d); bookMap[k] = (bookMap[k]||0) + 1; }}
+    if (b.t && b.t >= from && b.t <= to) {{ const k = bucket(b.t); fulfMap[k] = (fulfMap[k]||0) + 1; }}
   }}
+
+  const keys = [...new Set([...Object.keys(bookMap), ...Object.keys(fulfMap)])].sort();
 
   makeChart(canvasId, {{
     type: 'bar',
     data: {{
-      labels: dates.map(d => d.slice(5)),
+      labels: keys.map(dispLabel),
       datasets: [
-        {{ label:'Reservas feitas', data:dates.map(d=>bookMap[d]||0),
+        {{ label:'Reservas feitas', data:keys.map(k=>bookMap[k]||0),
            backgroundColor:'rgba(99,102,241,.65)', borderRadius:3, order:2 }},
-        {{ label:'Voos realizados (fulfilment)', data:dates.map(d=>fulfMap[d]||0),
+        {{ label:'Voos realizados (fulfilment)', data:keys.map(k=>fulfMap[k]||0),
            type:'line', borderColor:'#06b6d4', backgroundColor:'rgba(6,182,212,.12)',
            fill:true, tension:0.4, pointRadius:2, borderWidth:2, order:1 }},
       ]
@@ -1043,7 +1069,7 @@ function buildBookingVsFulfilment(canvasId, from, to) {{
       responsive:true, interaction:{{mode:'index',intersect:false}},
       plugins:{{legend:{{display:false}}}},
       scales:{{
-        x:{{grid:{{display:false}}, ticks:{{maxTicksLimit:14}}}},
+        x:{{grid:{{display:false}}, ticks:{{maxTicksLimit:16}}}},
         y:{{grid:{{color:'rgba(51,65,85,.4)'}}, beginAtZero:true, ticks:{{stepSize:1}}}}
       }}
     }}
