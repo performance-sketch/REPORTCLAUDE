@@ -369,6 +369,7 @@ def processar_rezdy(reservas, dias=None):
             "data":    (b.get("dateCreated") or "")[:10],
             "tour_dt": tour_dt,
             "nome":    (b.get("customer") or {}).get("name", "-"),
+            "fonte":   (b.get("source") or "ONLINE").upper(),
         })
         cupom_resumo[coupon]["usos"]    += 1
         cupom_resumo[coupon]["receita"] += valor
@@ -703,8 +704,28 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-    <div class="card"><div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Reservas por Dia</div><canvas id="chartRezdyDiario2" height="200"></canvas></div>
-    <div class="card"><div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Receita Diária Confirmada</div><canvas id="chartRezdyReceita" height="200"></canvas></div>
+    <div class="card">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div style="font-weight:600;font-size:.9rem">Reservas por Dia</div>
+        <div style="display:flex;gap:4px">
+          <button onclick="setRezdyView('dia')"    class="tab-btn active rezdy-view-btn rezdy-view-btn-dia"    style="padding:3px 10px;font-size:.72rem">Dia</button>
+          <button onclick="setRezdyView('semana')" class="tab-btn rezdy-view-btn rezdy-view-btn-semana" style="padding:3px 10px;font-size:.72rem">Semana</button>
+          <button onclick="setRezdyView('mes')"    class="tab-btn rezdy-view-btn rezdy-view-btn-mes"    style="padding:3px 10px;font-size:.72rem">Mês</button>
+        </div>
+      </div>
+      <canvas id="chartRezdyDiario2" height="200"></canvas>
+    </div>
+    <div class="card">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div style="font-weight:600;font-size:.9rem">Receita Diária Confirmada</div>
+        <div style="display:flex;gap:4px">
+          <button onclick="setRezdyView('dia')"    class="tab-btn active rezdy-view-btn rezdy-view-btn-dia"    style="padding:3px 10px;font-size:.72rem">Dia</button>
+          <button onclick="setRezdyView('semana')" class="tab-btn rezdy-view-btn rezdy-view-btn-semana" style="padding:3px 10px;font-size:.72rem">Semana</button>
+          <button onclick="setRezdyView('mes')"    class="tab-btn rezdy-view-btn rezdy-view-btn-mes"    style="padding:3px 10px;font-size:.72rem">Mês</button>
+        </div>
+      </div>
+      <canvas id="chartRezdyReceita" height="200"></canvas>
+    </div>
   </div>
 
   <!-- Bookings por Fonte -->
@@ -982,12 +1003,48 @@ function buildMetaDiario(canvasId, mDays) {{
   }});
 }}
 
+let _rezdyView = 'dia';
+let _rezdyDays = [];
+
+function aggregateRezdyDays(rDays, view) {{
+  if (view === 'dia') return rDays;
+  const agg = {{}};
+  for (const d of rDays) {{
+    let key;
+    if (view === 'semana') {{
+      const dt = new Date(d.data + 'T12:00:00');
+      dt.setDate(dt.getDate() - dt.getDay());
+      key = dt.toISOString().slice(0,10);
+    }} else {{
+      key = d.data.slice(0,7);
+    }}
+    if (!agg[key]) agg[key] = {{data:key, confirmadas:0, abandonadas:0, outras:0, receita:0}};
+    agg[key].confirmadas += d.confirmadas;
+    agg[key].abandonadas += d.abandonadas;
+    agg[key].outras      += (d.outras||0);
+    agg[key].receita     += d.receita;
+  }}
+  return Object.values(agg).sort((a,b)=>a.data.localeCompare(b.data));
+}}
+
+function setRezdyView(view) {{
+  _rezdyView = view;
+  document.querySelectorAll('.rezdy-view-btn').forEach(btn => {{
+    const isActive = btn.classList.contains('rezdy-view-btn-' + view);
+    btn.classList.toggle('active', isActive);
+  }});
+  const agg = aggregateRezdyDays(_rezdyDays, view);
+  buildRezdyDiario('chartRezdyDiario',  agg);
+  buildRezdyDiario('chartRezdyDiario2', agg);
+  buildRezdyReceita('chartRezdyReceita', agg);
+}}
+
 function buildRezdyDiario(canvasId, rDays) {{
-  const labels = rDays.map(d => d.data.slice(5));
+  const labelFmt = d => _rezdyView === 'mes' ? d.data : d.data.slice(5);
   makeChart(canvasId, {{
     type:'bar',
     data:{{
-      labels,
+      labels: rDays.map(labelFmt),
       datasets:[
         {{label:'Confirmadas', data:rDays.map(d=>d.confirmadas), backgroundColor:'rgba(34,197,94,.75)', borderRadius:3, stack:'s'}},
         {{label:'Abandonadas', data:rDays.map(d=>d.abandonadas), backgroundColor:'rgba(239,68,68,.5)',  borderRadius:3, stack:'s'}},
@@ -996,22 +1053,23 @@ function buildRezdyDiario(canvasId, rDays) {{
     options:{{
       responsive:true, interaction:{{mode:'index',intersect:false}},
       plugins:{{legend:{{labels:{{boxWidth:12}}}}}},
-      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:12}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}}}}}}
+      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}}}}}}
     }}
   }});
 }}
 
 function buildRezdyReceita(canvasId, rDays) {{
+  const labelFmt = d => _rezdyView === 'mes' ? d.data : d.data.slice(5);
   makeChart(canvasId, {{
     type:'line',
     data:{{
-      labels: rDays.map(d=>d.data.slice(5)),
+      labels: rDays.map(labelFmt),
       datasets:[{{label:'Receita Confirmada (R$)', data:rDays.map(d=>d.receita), borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,.1)', fill:true, tension:0.4, pointRadius:2}}]
     }},
     options:{{
       responsive:true,
       plugins:{{legend:{{labels:{{boxWidth:12}}}},tooltip:{{callbacks:{{label:ctx=>fBRL(ctx.raw)}}}}}},
-      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:12}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},ticks:{{callback:v=>'R$'+v.toLocaleString('pt-BR')}}}}}}
+      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},ticks:{{callback:v=>'R$'+v.toLocaleString('pt-BR')}}}}}}
     }}
   }});
 }}
@@ -1091,7 +1149,7 @@ function setFonteView(view) {{
 
 function buildBookingsFonte(from, to) {{
   _fonteFrom = from; _fonteTo = to;
-  const bk = BOOKINGS.filter(b => b.d >= from && b.d <= to);
+  const bk = BOOKINGS.filter(b => b.d >= from && b.d <= to && b.s === 'CONFIRMED');
 
   const bucket = (date) => {{
     if (_fonteView === 'dia')   return date;
@@ -1202,9 +1260,11 @@ function applyDateRange(from, to) {{
   // ── Update charts ──
   buildMetaDiario('chartMetaDiario', mDays);
   buildMetaDiario('chartMetaDiario2', mDays);
-  buildRezdyDiario('chartRezdyDiario', rDays);
-  buildRezdyDiario('chartRezdyDiario2', rDays);
-  buildRezdyReceita('chartRezdyReceita', rDays);
+  _rezdyDays = rDays;
+  const rDaysAgg = aggregateRezdyDays(rDays, _rezdyView);
+  buildRezdyDiario('chartRezdyDiario', rDaysAgg);
+  buildRezdyDiario('chartRezdyDiario2', rDaysAgg);
+  buildRezdyReceita('chartRezdyReceita', rDaysAgg);
   buildBookingVsFulfilment('chartBookingVsFulfilment', from, to);
   buildBookingsFonte(from, to);
 
