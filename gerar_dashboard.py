@@ -218,12 +218,13 @@ def buscar_meta_diario_campanhas(dias=90):
 
 
 # ─── Rezdy ────────────────────────────────────────────────────────────────────
-def buscar_rezdy_reservas(limite_total=800):
+def buscar_rezdy_reservas(limite_total=5000, date_start="2019-01-01"):
     todas, offset = [], 0
     while offset < limite_total:
-        resp = requests.get(f"{REZDY_BASE}/bookings", params={
-            "apiKey": REZDY_KEY, "limit": 100, "offset": offset,
-        }, timeout=20)
+        params = {"apiKey": REZDY_KEY, "limit": 100, "offset": offset}
+        if date_start:
+            params["orderDateStart"] = date_start
+        resp = requests.get(f"{REZDY_BASE}/bookings", params=params, timeout=20)
         resp.raise_for_status()
         lote = resp.json().get("bookings", [])
         if not lote:
@@ -236,11 +237,14 @@ def buscar_rezdy_reservas(limite_total=800):
     return todas
 
 
-def processar_rezdy(reservas, dias=90):
+def processar_rezdy(reservas, dias=None):
     hoje      = datetime.now()
     hoje_str  = hoje.strftime("%Y-%m-%d")
-    corte     = (hoje - timedelta(days=dias)).strftime("%Y-%m-%d")
-    recentes  = [b for b in reservas if (b.get("dateCreated") or "")[:10] >= corte]
+    if dias is None:
+        recentes = reservas
+    else:
+        corte    = (hoje - timedelta(days=dias)).strftime("%Y-%m-%d")
+        recentes = [b for b in reservas if (b.get("dateCreated") or "")[:10] >= corte]
 
     por_dia     = defaultdict(lambda: {"confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0})
     por_produto = defaultdict(lambda: {"ordens": 0, "confirmadas": 0, "receita": 0.0})
@@ -270,17 +274,22 @@ def processar_rezdy(reservas, dias=90):
         else:
             por_dia[data]["outras"] += 1
 
+    datas_com_dados = [d for d in por_dia.keys() if d]
+    data_inicio = min(datas_com_dados) if datas_com_dados else (hoje - timedelta(days=89)).strftime("%Y-%m-%d")
+
     todos_dias = []
-    for i in range(dias):
-        d = (hoje - timedelta(days=dias - 1 - i)).strftime("%Y-%m-%d")
-        v = por_dia[d]
+    cur = datetime.strptime(data_inicio, "%Y-%m-%d")
+    while cur <= hoje:
+        d_str = cur.strftime("%Y-%m-%d")
+        v = por_dia[d_str]
         todos_dias.append({
-            "data":        d,
+            "data":        d_str,
             "confirmadas": v["confirmadas"],
             "abandonadas": v["abandonadas"],
             "outras":      v["outras"],
             "receita":     round(v["receita"], 2),
         })
+        cur += timedelta(days=1)
 
     confirmadas_total = sum(b["confirmadas"] for b in todos_dias)
     abandonadas_total = sum(b["abandonadas"] for b in todos_dias)
@@ -442,7 +451,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
 
     hoje_str   = datetime.now().strftime("%Y-%m-%d")
     d30_str    = (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d")
-    d90_str    = (datetime.now() - timedelta(days=89)).strftime("%Y-%m-%d")
+    d90_str    = rz["por_dia"][0]["data"] if rz["por_dia"] else (datetime.now() - timedelta(days=89)).strftime("%Y-%m-%d")
 
     def fmt_brl(v): return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     def fmt_n(v):   return f"{int(v):,}".replace(",", ".")
@@ -698,6 +707,19 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
     <div class="card"><div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Receita Diária Confirmada</div><canvas id="chartRezdyReceita" height="200"></canvas></div>
   </div>
 
+  <!-- Bookings por Fonte -->
+  <div class="card mb-5">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <div style="font-weight:600;font-size:.9rem">Bookings: Online vs Interno vs Outros</div>
+      <div style="display:flex;gap:6px">
+        <button onclick="setFonteView('dia')"   id="fonte-btn-dia"    class="tab-btn active" style="padding:4px 12px;font-size:.75rem">Dia</button>
+        <button onclick="setFonteView('semana')" id="fonte-btn-semana" class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Semana</button>
+        <button onclick="setFonteView('mes')"    id="fonte-btn-mes"    class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Mês</button>
+      </div>
+    </div>
+    <canvas id="chartBookingsFonte" height="180"></canvas>
+  </div>
+
   <!-- Booking vs Fulfilment -->
   <div class="card mb-5">
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -771,11 +793,15 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
 
   <!-- ── Voos Confirmados via Cupom (dinâmico) ──────────────────────────── -->
   <div class="card mb-5" id="cupom-section">
-    <div class="flex items-center gap-3 mb-4 flex-wrap">
-      <div style="font-weight:600;font-size:.9rem">Voos Confirmados via Cupom</div>
-      <span class="badge badge-blue" id="cupom-count">—</span>
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div class="flex items-center gap-3">
+        <div style="font-weight:600;font-size:.9rem">Voos Confirmados via Cupom</div>
+        <span class="badge badge-blue" id="cupom-count">—</span>
+      </div>
+      <button id="cupom-section-toggle" onclick="toggleCard('cupom-section-body','cupom-section-toggle')" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">▲ Minimizar</button>
     </div>
 
+    <div id="cupom-section-body">
     <div id="cupom-vazio" style="display:none;color:#94a3b8;font-size:.85rem;padding:8px 0">
       Nenhum voo confirmado com cupom no período selecionado.
     </div>
@@ -811,24 +837,47 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
       </div>
 
       <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detalhe por voo</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <select id="cupom-detail-filter-fonte" onchange="renderCupons(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
+          <option value="">Todas as fontes</option>
+          <option value="ONLINE">Online</option>
+          <option value="INTERNAL">Interno</option>
+        </select>
+        <select id="cupom-detail-filter-cupom" onchange="renderCupons(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
+          <option value="">Todos os cupons</option>
+        </select>
+      </div>
       <div style="overflow-x:auto">
         <table>
           <thead><tr>
             <th>Nº Pedido</th><th>Cupom</th><th>Produto</th>
             <th style="text-align:right">Pax</th>
             <th style="text-align:right">Valor</th>
-            <th>Reservado</th><th>Voo</th><th>Cliente</th>
+            <th>Reservado</th><th>Voo</th><th>Fonte</th><th>Cliente</th>
           </tr></thead>
           <tbody id="cupom-detail-body"></tbody>
         </table>
       </div>
     </div>
+    </div><!-- /cupom-section-body -->
   </div>
 
   <!-- ── Últimas Reservas ────────────────────────────────────────────────── -->
   <div class="card">
-    <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Últimas Reservas</div>
-    <div style="overflow-x:auto">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <div style="font-weight:600;font-size:.9rem">Últimas Reservas</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="book-filter-status" onchange="renderBookings(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
+          <option value="">Todos os status</option>
+          <option value="CONFIRMED">Confirmados</option>
+          <option value="ABANDONED_CART">Abandonados</option>
+          <option value="CANCELLED">Cancelados</option>
+          <option value="ON_HOLD">On Hold</option>
+        </select>
+        <button id="book-section-toggle" onclick="toggleCard('book-section-body','book-section-toggle')" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">▲ Minimizar</button>
+      </div>
+    </div>
+    <div id="book-section-body" style="overflow-x:auto">
       <table>
         <thead><tr>
           <th>Nº Pedido</th><th>Status</th><th>Produto</th>
@@ -863,6 +912,7 @@ const CUPOM_STATUS = {cupom_status_json};
 const HOJE         = "{hoje_str}";
 const D30_FROM     = "{d30_str}";
 const D90_FROM     = "{d90_str}";
+let currentFrom = D30_FROM, currentTo = HOJE;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fBRL = v => 'R$ ' + Number(v).toLocaleString('pt-BR',{{minimumFractionDigits:2,maximumFractionDigits:2}});
@@ -1000,8 +1050,67 @@ function buildBookingVsFulfilment(canvasId, from, to) {{
   }});
 }}
 
+// ─── Bookings por Fonte ───────────────────────────────────────────────────────
+let _fonteView = 'dia';
+let _fonteFrom = '', _fonteTo = '';
+
+function setFonteView(view) {{
+  _fonteView = view;
+  ['dia','semana','mes'].forEach(v => {{
+    const btn = document.getElementById('fonte-btn-' + v);
+    if (btn) {{ btn.classList.toggle('active', v === view); }}
+  }});
+  buildBookingsFonte(_fonteFrom, _fonteTo);
+}}
+
+function buildBookingsFonte(from, to) {{
+  _fonteFrom = from; _fonteTo = to;
+  const bk = BOOKINGS.filter(b => b.d >= from && b.d <= to);
+
+  const bucket = (date) => {{
+    if (_fonteView === 'dia')   return date;
+    if (_fonteView === 'semana') {{
+      const d = new Date(date + 'T12:00:00');
+      const dow = d.getDay(); // 0=Sun
+      d.setDate(d.getDate() - dow);
+      return d.toISOString().slice(0,10);
+    }}
+    return date.slice(0,7);
+  }};
+
+  const agg = {{}};
+  for (const b of bk) {{
+    const k = bucket(b.d);
+    if (!agg[k]) agg[k] = {{online:0, interno:0, outros:0}};
+    const f = (b.f || '').toUpperCase();
+    if (f === 'ONLINE')   agg[k].online++;
+    else if (f === 'INTERNAL' || f === 'INTERNO') agg[k].interno++;
+    else agg[k].outros++;
+  }}
+
+  const labels = Object.keys(agg).sort();
+  const dispLabel = l => _fonteView === 'mes' ? l.slice(0,7) : l.slice(5);
+  makeChart('chartBookingsFonte', {{
+    type: 'bar',
+    data: {{
+      labels: labels.map(dispLabel),
+      datasets: [
+        {{ label:'Online',   data:labels.map(l=>agg[l].online),   backgroundColor:'rgba(99,102,241,.75)', borderRadius:3, stack:'s' }},
+        {{ label:'Interno',  data:labels.map(l=>agg[l].interno),  backgroundColor:'rgba(34,197,94,.75)',  borderRadius:3, stack:'s' }},
+        {{ label:'Outros',   data:labels.map(l=>agg[l].outros),   backgroundColor:'rgba(245,158,11,.6)',  borderRadius:3, stack:'s' }},
+      ]
+    }},
+    options:{{
+      responsive:true, interaction:{{mode:'index',intersect:false}},
+      plugins:{{legend:{{labels:{{boxWidth:12}}}}}},
+      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:16}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true,ticks:{{stepSize:1}}}}}}
+    }}
+  }});
+}}
+
 // ─── Date range apply ─────────────────────────────────────────────────────────
 function applyDateRange(from, to) {{
+  currentFrom = from; currentTo = to;
   // ── Filter Meta ──
   const mDays  = META_DATA.diario.filter(d => d.data >= from && d.data <= to);
   const mGasto = mDays.reduce((s,d)=>s+d.gasto,0);
@@ -1071,6 +1180,7 @@ function applyDateRange(from, to) {{
   buildRezdyDiario('chartRezdyDiario2', rDays);
   buildRezdyReceita('chartRezdyReceita', rDays);
   buildBookingVsFulfilment('chartBookingVsFulfilment', from, to);
+  buildBookingsFonte(from, to);
 
   // ── Tabelas e gráficos dinâmicos ──
   renderCampanhas(from, to);
@@ -1219,7 +1329,23 @@ function renderCriativos() {{
 
 // ─── Cupons dinâmicos ────────────────────────────────────────────────────────
 function renderCupons(from, to) {{
-  const filtered = VOOS_CUPOM.filter(b => b.data >= from && b.data <= to);
+  const fonteFilter  = (document.getElementById('cupom-detail-filter-fonte')  || {{}}).value || '';
+  const cupomFilter  = (document.getElementById('cupom-detail-filter-cupom')  || {{}}).value || '';
+  const allInPeriod  = VOOS_CUPOM.filter(b => b.data >= from && b.data <= to);
+
+  // Populate cupom dropdown (only for current period)
+  const cupomSel = document.getElementById('cupom-detail-filter-cupom');
+  if (cupomSel) {{
+    const cupons = [...new Set(allInPeriod.map(b => b.coupon))].sort();
+    const prev = cupomSel.value;
+    cupomSel.innerHTML = '<option value="">Todos os cupons</option>' +
+      cupons.map(c => `<option value="${{c}}"${{c===prev?' selected':''}}>${{c}}</option>`).join('');
+  }}
+
+  const filtered = allInPeriod.filter(b =>
+    (!fonteFilter || (b.fonte||'ONLINE').toUpperCase() === fonteFilter) &&
+    (!cupomFilter || b.coupon === cupomFilter)
+  );
 
   // Agrega por cupom (confirmados)
   const agr = {{}};
@@ -1304,6 +1430,7 @@ function renderCupons(from, to) {{
         <td style="text-align:right;color:#22c55e;font-weight:600">${{fBRL(b.valor)}}</td>
         <td style="color:#94a3b8">${{b.data}}</td>
         <td style="color:#94a3b8">${{b.tour_dt || '—'}}</td>
+        <td style="font-size:.75rem;color:#94a3b8">${{b.fonte || 'ONLINE'}}</td>
         <td style="color:#94a3b8;font-size:.8rem;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.nome}}</td>
       </tr>`).join('');
   }}
@@ -1312,7 +1439,8 @@ function renderCupons(from, to) {{
 function renderBookings(from, to) {{
   const tbody = document.getElementById('book-body');
   if (!tbody) return;
-  const rows = BOOKINGS.filter(b => b.d >= from && b.d <= to).slice(0,200);
+  const statusFilter = (document.getElementById('book-filter-status') || {{}}).value || '';
+  const rows = BOOKINGS.filter(b => b.d >= from && b.d <= to && (!statusFilter || b.s === statusFilter)).slice(0,200);
   tbody.innerHTML = rows.map(b => {{
     const sc  = b.s==='CONFIRMED'?'badge-green':b.s==='ABANDONED_CART'?'badge-red':'badge-amber';
     const flag = countryFlag(b.cc);
@@ -1450,6 +1578,16 @@ function renderHeatmap() {{
 }}
 
 // ─── Init flatpickr ───────────────────────────────────────────────────────────
+// ─── Card collapse ────────────────────────────────────────────────────────────
+function toggleCard(bodyId, btnId) {{
+  const body = document.getElementById(bodyId);
+  const btn  = document.getElementById(btnId);
+  if (!body) return;
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  if (btn) btn.textContent = hidden ? '▲ Minimizar' : '▼ Expandir';
+}}
+
 flatpickr.localize(flatpickr.l10ns.pt);
 flatpickr("#date-range", {{
   mode: "range",
@@ -1535,13 +1673,14 @@ def main():
 
         meta = {"d30": d30, "campanhas": campanhas, "diario": diario}
 
-    print("[ 6/7 ] Rezdy — reservas...")
-    reservas = buscar_rezdy_reservas(3000)
+    print("[ 6/7 ] Rezdy — reservas (histórico completo)...")
+    reservas = buscar_rezdy_reservas(5000, date_start="2019-01-01")
     print(f"       {len(reservas)} reservas")
 
     print("[ 7/7 ] Processando e gerando HTML...")
-    rezdy_dados = processar_rezdy(reservas, dias=90)
-    print(f"       90d: {rezdy_dados['confirmadas']} conf | R${rezdy_dados['receita']:,.2f} | {len(rezdy_dados['todos_bookings'])} bookings")
+    rezdy_dados = processar_rezdy(reservas)
+    data_min = rezdy_dados["por_dia"][0]["data"] if rezdy_dados["por_dia"] else "?"
+    print(f"       {data_min} a hoje: {rezdy_dados['confirmadas']} conf | R${rezdy_dados['receita']:,.2f} | {len(rezdy_dados['todos_bookings'])} bookings")
 
     html = gerar_html(meta, rezdy_dados, camps_diario, criativos, agora)
 
