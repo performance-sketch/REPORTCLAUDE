@@ -241,6 +241,30 @@
     <div class="card"><div class="kpi-label">Taxa Conversão</div><div class="kpi-val" id="rk-taxa" style="color:var(--cyan)">45.60%</div></div>
   </div>
 
+  <!-- ── Análise Mensal ─────────────────────────────────────────────────── -->
+  <div style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em;margin:4px 0 10px">Tendência Mensal</div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+    <div class="card">
+      <div style="font-weight:600;font-size:.9rem;margin-bottom:4px">Bookings & Fulfillments — Mês a Mês</div>
+      <div style="font-size:.72rem;color:var(--sub);margin-bottom:14px">Reservas confirmadas vs abandonadas vs voos realizados (data do voo)</div>
+      <canvas id="chartMensalBookings" height="210"></canvas>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+        <span style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#94a3b8"><span style="width:24px;height:2px;background:#22c55e;display:inline-block;border-radius:2px"></span>Confirmadas</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#94a3b8"><span style="width:24px;height:2px;background:#06b6d4;display:inline-block;border-radius:2px"></span>Fulfillments</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#94a3b8"><span style="width:24px;height:2px;background:#ef4444;display:inline-block;border-radius:2px;opacity:.7"></span>Abandonadas</span>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-weight:600;font-size:.9rem;margin-bottom:4px">Receita & Ticket Médio — Mês a Mês</div>
+      <div style="font-size:.72rem;color:var(--sub);margin-bottom:14px">Receita confirmada total (eixo esq.) e ticket médio (eixo dir.)</div>
+      <canvas id="chartMensalReceita" height="210"></canvas>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+        <span style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#94a3b8"><span style="width:24px;height:2px;background:#6366f1;display:inline-block;border-radius:2px"></span>Receita Total</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:#94a3b8"><span style="width:24px;height:2px;background:#f59e0b;display:inline-block;border-radius:2px;opacity:.9"></span>Ticket Médio</span>
+      </div>
+    </div>
+  </div>
+
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
     <div class="card">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -838,6 +862,123 @@ function buildBookingsFonte(from, to) {
   });
 }
 
+// ─── Análise Mensal ───────────────────────────────────────────────────────────
+function buildMensalTrend(from, to) {
+  const monthMap = {};
+  for (const d of REZDY_DATA.por_dia) {
+    const m = d.data.slice(0, 7);
+    if (!monthMap[m]) monthMap[m] = { conf: 0, aband: 0, receita: 0 };
+    monthMap[m].conf   += d.confirmadas;
+    monthMap[m].aband  += d.abandonadas;
+    monthMap[m].receita += d.receita;
+  }
+
+  const fulfMap = {};
+  for (const b of BOOKINGS) {
+    if (b.s !== 'CONFIRMED') continue;
+    if (!b.t) continue;
+    const m = b.t.slice(0, 7);
+    fulfMap[m] = (fulfMap[m] || 0) + 1;
+  }
+
+  const months = [...new Set([...Object.keys(monthMap), ...Object.keys(fulfMap)])].sort();
+  const labels = months.map(m => {
+    const [y, mo] = m.split('-');
+    const names = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    return names[parseInt(mo, 10) - 1] + '/' + y.slice(2);
+  });
+
+  makeChart('chartMensalBookings', {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Confirmadas', data: months.map(m => monthMap[m]?.conf || 0),
+          borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,.1)',
+          fill: true, tension: 0.35, pointRadius: 4, pointHoverRadius: 6, borderWidth: 2.5
+        },
+        {
+          label: 'Fulfillments', data: months.map(m => fulfMap[m] || 0),
+          borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,.08)',
+          fill: false, tension: 0.35, pointRadius: 4, pointHoverRadius: 6,
+          borderWidth: 2.5, borderDash: [5, 3]
+        },
+        {
+          label: 'Abandonadas', data: months.map(m => monthMap[m]?.aband || 0),
+          borderColor: 'rgba(239,68,68,.75)', backgroundColor: 'rgba(239,68,68,.05)',
+          fill: false, tension: 0.35, pointRadius: 3, pointHoverRadius: 5, borderWidth: 1.8
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: {
+          grid: { color: 'rgba(51,65,85,.4)' }, beginAtZero: true,
+          ticks: { stepSize: 50 }
+        }
+      }
+    }
+  });
+
+  makeChart('chartMensalReceita', {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Receita Total', data: months.map(m => monthMap[m]?.receita || 0),
+          borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.1)',
+          fill: true, tension: 0.35, pointRadius: 4, pointHoverRadius: 6,
+          borderWidth: 2.5, yAxisID: 'yReceita'
+        },
+        {
+          label: 'Ticket Médio',
+          data: months.map(m => {
+            const d = monthMap[m];
+            return d && d.conf > 0 ? Math.round(d.receita / d.conf) : 0;
+          }),
+          borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.0)',
+          fill: false, tension: 0.35, pointRadius: 4, pointHoverRadius: 6,
+          borderWidth: 2.5, yAxisID: 'yTicket'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = ctx.raw;
+              return ctx.dataset.label + ': ' + (v >= 1000 ? 'R$ ' + v.toLocaleString('pt-BR') : v);
+            }
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false } },
+        yReceita: {
+          type: 'linear', position: 'left',
+          grid: { color: 'rgba(51,65,85,.4)' }, beginAtZero: true,
+          ticks: { callback: v => 'R$' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) }
+        },
+        yTicket: {
+          type: 'linear', position: 'right',
+          grid: { drawOnChartArea: false }, beginAtZero: true,
+          ticks: { callback: v => 'R$' + v.toLocaleString('pt-BR') }
+        }
+      }
+    }
+  });
+}
+
 // ─── Date range apply ─────────────────────────────────────────────────────────
 function applyDateRange(from, to) {
   currentFrom = from; currentTo = to;
@@ -913,6 +1054,7 @@ function applyDateRange(from, to) {
   buildRezdyReceita('chartRezdyReceita', rDaysAgg);
   buildBookingVsFulfilment('chartBookingVsFulfilment', from, to);
   buildBookingsFonte(from, to);
+  buildMensalTrend(from, to);
 
   // ── Tabelas e gráficos dinâmicos ──
   renderCampanhas(from, to);
