@@ -217,6 +217,113 @@ def buscar_meta_diario_campanhas(dias=90):
     return list(camps.values())
 
 
+# ─── Meta Orgânico ────────────────────────────────────────────────────────────
+def buscar_paginas():
+    """Auto-descobre páginas do Facebook e conta Instagram vinculada ao token."""
+    try:
+        resp = meta_get("me/accounts", {"fields": "id,name,access_token,instagram_business_account"})
+        return resp.get("data", [])
+    except Exception as e:
+        print(f"       AVISO buscar_paginas: {e}")
+        return []
+
+
+def buscar_organico_facebook(page_id, page_token, dias=90):
+    """Busca posts orgânicos da Page Facebook com insights e reações."""
+    hoje  = datetime.now()
+    since = int((hoje - timedelta(days=dias)).timestamp())
+    resp  = requests.get(f"{META_BASE}/{page_id}/posts", params={
+        "access_token": page_token,
+        "fields": "id,message,story,created_time,type",
+        "since": since,
+        "limit": 100,
+    }, timeout=20)
+    resp.raise_for_status()
+    posts = _paginar(resp.json())
+
+    resultado = []
+    for post in posts:
+        pid = post.get("id", "")
+        try:
+            ins_r = requests.get(f"{META_BASE}/{pid}/insights", params={
+                "access_token": page_token,
+                "metric": "post_impressions,post_reach,post_engaged_users,post_clicks",
+            }, timeout=15).json()
+            insights = {}
+            for item in ins_r.get("data", []):
+                vals = item.get("values") or [{}]
+                insights[item["name"]] = int(vals[-1].get("value", 0) or 0)
+        except Exception:
+            insights = {}
+        try:
+            reacts_r = requests.get(f"{META_BASE}/{pid}", params={
+                "access_token": page_token,
+                "fields": "reactions.summary(true),comments.summary(true),shares",
+            }, timeout=15).json()
+            curtidas        = reacts_r.get("reactions", {}).get("summary", {}).get("total_count", 0)
+            comentarios     = reacts_r.get("comments", {}).get("summary", {}).get("total_count", 0)
+            compartilhamentos = reacts_r.get("shares", {}).get("count", 0) if reacts_r.get("shares") else 0
+        except Exception:
+            curtidas = comentarios = compartilhamentos = 0
+
+        resultado.append({
+            "id":                pid,
+            "tipo":              post.get("type", "status"),
+            "plataforma":        "facebook",
+            "mensagem":          (post.get("message") or post.get("story") or "")[:180],
+            "criado_em":         post.get("created_time", "")[:10],
+            "impressoes":        insights.get("post_impressions", 0),
+            "alcance":           insights.get("post_reach", 0),
+            "engajados":         insights.get("post_engaged_users", 0),
+            "cliques":           insights.get("post_clicks", 0),
+            "curtidas":          int(curtidas or 0),
+            "comentarios":       int(comentarios or 0),
+            "compartilhamentos": int(compartilhamentos or 0),
+            "salvos":            0,
+            "video_views":       0,
+        })
+    return resultado
+
+
+def buscar_organico_instagram(ig_id, dias=90):
+    """Busca posts orgânicos do Instagram Business Account."""
+    hoje  = datetime.now()
+    since = int((hoje - timedelta(days=dias)).timestamp())
+    resp  = requests.get(f"{META_BASE}/{ig_id}/media", params={
+        "access_token": META_TOKEN,
+        "fields": "id,caption,media_type,timestamp,like_count,comments_count,"
+                  "insights.metric(impressions,reach,saved,video_views)",
+        "since": since,
+        "limit": 50,
+    }, timeout=20)
+    resp.raise_for_status()
+    posts = _paginar(resp.json())
+
+    resultado = []
+    for post in posts:
+        ins_data = {
+            i["name"]: int((i.get("values") or [{}])[0].get("value", 0) or 0)
+            for i in (post.get("insights") or {}).get("data", [])
+        }
+        resultado.append({
+            "id":                post.get("id", ""),
+            "tipo":              post.get("media_type", "IMAGE").lower(),
+            "plataforma":        "instagram",
+            "mensagem":          (post.get("caption") or "")[:180],
+            "criado_em":         post.get("timestamp", "")[:10],
+            "impressoes":        ins_data.get("impressions", 0),
+            "alcance":           ins_data.get("reach", 0),
+            "curtidas":          int(post.get("like_count", 0) or 0),
+            "comentarios":       int(post.get("comments_count", 0) or 0),
+            "salvos":            ins_data.get("saved", 0),
+            "video_views":       ins_data.get("video_views", 0),
+            "engajados":         0,
+            "cliques":           0,
+            "compartilhamentos": 0,
+        })
+    return resultado
+
+
 # ─── Rezdy ────────────────────────────────────────────────────────────────────
 def buscar_rezdy_reservas(limite_total=5000, date_start="2019-01-01"):
     todas, offset = [], 0
@@ -433,7 +540,7 @@ def processar_rezdy(reservas, dias=None):
 
 
 # ─── HTML ─────────────────────────────────────────────────────────────────────
-def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
+def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organico_fb=None, organico_ig=None):
     d30 = meta["d30"]
     rz  = rezdy_dados
 
@@ -446,6 +553,9 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
     bookings_json     = json.dumps(rz["todos_bookings"],   ensure_ascii=False)
     heatmap_json      = json.dumps(rz["heatmap"],          ensure_ascii=False)
     criativos_json    = json.dumps(criativos,              ensure_ascii=False)
+    organico_lista    = (organico_fb or []) + (organico_ig or [])
+    organico_json     = json.dumps(organico_lista,         ensure_ascii=False)
+    org_tem_dados     = bool(organico_lista)
     voos_cupom_json   = json.dumps(rz["voos_cupom"],       ensure_ascii=False)
     cupom_resumo_json = json.dumps(rz["cupom_resumo"],     ensure_ascii=False)
     cupom_status_json = json.dumps(rz["cupom_status"],     ensure_ascii=False)
@@ -540,6 +650,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
       <button class="tab-btn active" onclick="switchTab('visao',this)">Visão Geral</button>
       <button class="tab-btn" onclick="switchTab('meta',this)">Meta Ads</button>
       <button class="tab-btn" onclick="switchTab('rezdy',this)">Rezdy Bookings</button>
+      <button class="tab-btn" onclick="switchTab('organico',this)">Meta Orgânico</button>
     </div>
     <!-- Date range picker global -->
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -919,6 +1030,113 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em):
 
 </div><!-- /tab-rezdy -->
 
+
+<!-- ══════════════════════════ META ORGÂNICO ═══════════════════════════════ -->
+<div id="tab-organico" class="tab-content pt-3" style="display:none">
+
+  <!-- Estado: sem dados -->
+  <div id="org-sem-dados" style="display:{'none' if org_tem_dados else 'block'}">
+    <div class="card" style="text-align:center;padding:48px 24px">
+      <div style="font-size:2.5rem;margin-bottom:14px">📊</div>
+      <div style="font-weight:700;font-size:1.1rem;margin-bottom:8px">Dados orgânicos não disponíveis</div>
+      <div style="color:var(--sub);font-size:.85rem;max-width:480px;margin:0 auto">
+        O token atual não retornou permissão de Page ou Instagram Business Account.<br>
+        Garanta as permissões <code>pages_read_engagement</code> e <code>instagram_manage_insights</code> no token Meta.
+      </div>
+    </div>
+  </div>
+
+  <!-- Estado: com dados -->
+  <div id="org-com-dados" style="display:{'block' if org_tem_dados else 'none'}">
+
+    <!-- KPIs Facebook -->
+    <div class="mb-2 mt-1" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Facebook Orgânico</div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      <div class="card"><div class="kpi-label">Posts</div><div class="kpi-val" id="org-fb-posts" style="color:#1877f2">—</div></div>
+      <div class="card"><div class="kpi-label">Alcance Total</div><div class="kpi-val" id="org-fb-alcance">—</div></div>
+      <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="org-fb-impr">—</div></div>
+      <div class="card"><div class="kpi-label">Eng. Médio/Post</div><div class="kpi-val" id="org-fb-eng" style="color:var(--cyan)">—</div></div>
+    </div>
+
+    <!-- KPIs Instagram -->
+    <div class="mb-2" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Instagram Orgânico</div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div class="card"><div class="kpi-label">Posts</div><div class="kpi-val" id="org-ig-posts" style="color:#e1306c">—</div></div>
+      <div class="card"><div class="kpi-label">Alcance Total</div><div class="kpi-val" id="org-ig-alcance">—</div></div>
+      <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="org-ig-impr">—</div></div>
+      <div class="card"><div class="kpi-label">Eng. Médio/Post</div><div class="kpi-val" id="org-ig-eng" style="color:var(--cyan)">—</div></div>
+    </div>
+
+    <!-- Charts row 1 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+      <div class="card">
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">FB vs IG — Médias por Plataforma</div>
+        <canvas id="chartOrgComparativo" height="220"></canvas>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Posts por Semana</div>
+        <canvas id="chartOrgTimeline" height="220"></canvas>
+      </div>
+    </div>
+
+    <!-- Charts row 2 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+      <div class="card">
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Engajamento Médio por Tipo de Post</div>
+        <canvas id="chartOrgTipos" height="220"></canvas>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Alcance Semanal — FB vs IG</div>
+        <canvas id="chartOrgAlcance" height="220"></canvas>
+      </div>
+    </div>
+
+    <!-- Tabela de posts -->
+    <div class="card">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div style="font-weight:600;font-size:.9rem">Todos os Posts Orgânicos</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="org-filter-plataforma" onchange="renderOrganicoPosts()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
+            <option value="">Todas as plataformas</option>
+            <option value="facebook">Facebook</option>
+            <option value="instagram">Instagram</option>
+          </select>
+          <select id="org-filter-tipo" onchange="renderOrganicoPosts()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
+            <option value="">Todos os tipos</option>
+          </select>
+          <select id="org-sort" onchange="renderOrganicoPosts()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
+            <option value="alcance">Por Alcance</option>
+            <option value="impressoes">Por Impressões</option>
+            <option value="curtidas">Por Curtidas</option>
+            <option value="comentarios">Por Comentários</option>
+            <option value="criado_em">Por Data</option>
+          </select>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Plat.</th>
+            <th>Tipo</th>
+            <th>Data</th>
+            <th>Post</th>
+            <th style="text-align:right">Alcance</th>
+            <th style="text-align:right">Impressões</th>
+            <th style="text-align:right">Curtidas</th>
+            <th style="text-align:right">Coment.</th>
+            <th style="text-align:right">Salvos/Comp.</th>
+            <th style="text-align:right">Total Eng.</th>
+          </tr></thead>
+          <tbody id="org-posts-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /org-com-dados -->
+
+</div><!-- /tab-organico -->
+
+
 </main>
 
 <footer class="border-t" style="border-color:var(--border);padding:20px 24px;text-align:center;font-size:.73rem;color:var(--sub)">
@@ -934,6 +1152,7 @@ const BOOKINGS     = {bookings_json};
 const HEATMAP      = {heatmap_json};
 const CRIATIVOS    = {criativos_json};
 const VOOS_CUPOM   = {voos_cupom_json};
+const ORGANICO     = {organico_json};
 const CUPOM_STATUS = {cupom_status_json};
 const HOJE         = "{hoje_str}";
 const D30_FROM     = "{d30_str}";
@@ -1274,6 +1493,7 @@ function applyDateRange(from, to) {{
   renderBookings(from, to);
   renderPaises(from, to);
   renderCupons(from, to);
+  renderOrganico(from, to);
 
   // ── Range label ──
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
@@ -1663,6 +1883,174 @@ function renderHeatmap() {{
   if (el) el.innerHTML = tbl;
 }}
 
+// ─── Meta Orgânico ────────────────────────────────────────────────────────────
+let _orgPosts = [];
+
+function renderOrganico(from, to) {{
+  if (!ORGANICO || !ORGANICO.length) return;
+  const posts = ORGANICO.filter(p => p.criado_em >= from && p.criado_em <= to);
+  const fb = posts.filter(p => p.plataforma === 'facebook');
+  const ig = posts.filter(p => p.plataforma === 'instagram');
+
+  const sum  = (arr, f) => arr.reduce((s, p) => s + (p[f] || 0), 0);
+  const engFb = p => (p.curtidas||0) + (p.comentarios||0) + (p.compartilhamentos||0) + (p.engajados||0);
+  const engIg = p => (p.curtidas||0) + (p.comentarios||0) + (p.salvos||0);
+
+  setText('org-fb-posts',   fb.length);
+  setText('org-ig-posts',   ig.length);
+  setText('org-fb-alcance', fN(sum(fb, 'alcance')));
+  setText('org-ig-alcance', fN(sum(ig, 'alcance')));
+  setText('org-fb-impr',    fN(sum(fb, 'impressoes')));
+  setText('org-ig-impr',    fN(sum(ig, 'impressoes')));
+  setText('org-fb-eng',     fb.length ? fN(Math.round(fb.reduce((s,p)=>s+engFb(p),0)/fb.length)) : '—');
+  setText('org-ig-eng',     ig.length ? fN(Math.round(ig.reduce((s,p)=>s+engIg(p),0)/ig.length)) : '—');
+
+  // Atualiza filtro de tipos
+  const tipos = [...new Set(posts.map(p => p.tipo))].sort();
+  const tipoSel = document.getElementById('org-filter-tipo');
+  if (tipoSel) {{
+    const prev = tipoSel.value;
+    tipoSel.innerHTML = '<option value="">Todos os tipos</option>' +
+      tipos.map(t => `<option value="${{t}}"${{t===prev?' selected':''}}>${{t}}</option>`).join('');
+  }}
+
+  _orgPosts = posts;
+  renderOrganicoPosts();
+  buildOrganicoCharts(fb, ig, posts);
+}}
+
+function renderOrganicoPosts() {{
+  const plat = (document.getElementById('org-filter-plataforma')||{{}}).value || '';
+  const tipo = (document.getElementById('org-filter-tipo')||{{}}).value || '';
+  const sort = (document.getElementById('org-sort')||{{}}).value || 'alcance';
+
+  let posts = _orgPosts.filter(p =>
+    (!plat || p.plataforma === plat) &&
+    (!tipo || p.tipo === tipo)
+  );
+  posts = [...posts].sort((a, b) => {{
+    if (sort === 'criado_em') return (b.criado_em > a.criado_em) ? 1 : -1;
+    return (b[sort] || 0) - (a[sort] || 0);
+  }});
+
+  const tbody = document.getElementById('org-posts-body');
+  if (!tbody) return;
+  if (!posts.length) {{
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:24px">Nenhum post no período.</td></tr>';
+    return;
+  }}
+  const engFb = p => (p.curtidas||0) + (p.comentarios||0) + (p.compartilhamentos||0) + (p.engajados||0);
+  const engIg = p => (p.curtidas||0) + (p.comentarios||0) + (p.salvos||0);
+
+  tbody.innerHTML = posts.map(p => {{
+    const isFb      = p.plataforma === 'facebook';
+    const platColor = isFb ? '#1877f2' : '#e1306c';
+    const platLbl   = isFb ? 'FB' : 'IG';
+    const salvComp  = isFb ? fN(p.compartilhamentos||0) : fN(p.salvos||0);
+    const totalEng  = isFb ? engFb(p) : engIg(p);
+    const msg       = (p.mensagem||'—').replace(/"/g,'&quot;');
+    return `<tr>
+      <td><span class="badge" style="background:${{platColor}}22;color:${{platColor}};font-weight:700">${{platLbl}}</span></td>
+      <td style="font-size:.75rem;color:#94a3b8;text-transform:capitalize">${{p.tipo}}</td>
+      <td style="color:#94a3b8;white-space:nowrap">${{p.criado_em}}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" title="${{msg}}">${{p.mensagem||'—'}}</td>
+      <td style="text-align:right;font-weight:600">${{fN(p.alcance||0)}}</td>
+      <td style="text-align:right;color:#94a3b8">${{fN(p.impressoes||0)}}</td>
+      <td style="text-align:right;color:#f59e0b">${{fN(p.curtidas||0)}}</td>
+      <td style="text-align:right;color:#94a3b8">${{fN(p.comentarios||0)}}</td>
+      <td style="text-align:right;color:#22c55e">${{salvComp}}</td>
+      <td style="text-align:right;color:#06b6d4;font-weight:600">${{fN(totalEng)}}</td>
+    </tr>`;
+  }}).join('');
+}}
+
+function buildOrganicoCharts(fb, ig, posts) {{
+  const engFb = p => (p.curtidas||0) + (p.comentarios||0) + (p.compartilhamentos||0) + (p.engajados||0);
+  const engIg = p => (p.curtidas||0) + (p.comentarios||0) + (p.salvos||0);
+  const avgArr = (arr, fn) => arr.length ? arr.reduce((s,p)=>s+fn(p),0)/arr.length : 0;
+
+  // Gráfico 1 — Comparativo FB vs IG (médias)
+  makeChart('chartOrgComparativo', {{
+    type: 'bar',
+    data: {{
+      labels: ['Alcance Médio', 'Impressões Médias', 'Eng. Médio'],
+      datasets: [
+        {{ label:'Facebook', backgroundColor:'rgba(24,119,242,.75)', borderRadius:4,
+           data: [Math.round(avgArr(fb,p=>p.alcance||0)), Math.round(avgArr(fb,p=>p.impressoes||0)), Math.round(avgArr(fb,engFb))] }},
+        {{ label:'Instagram', backgroundColor:'rgba(225,48,108,.75)', borderRadius:4,
+           data: [Math.round(avgArr(ig,p=>p.alcance||0)), Math.round(avgArr(ig,p=>p.impressoes||0)), Math.round(avgArr(ig,engIg))] }},
+      ]
+    }},
+    options:{{ responsive:true, interaction:{{mode:'index',intersect:false}},
+      plugins:{{legend:{{labels:{{boxWidth:12}}}}}},
+      scales:{{x:{{grid:{{display:false}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true}}}} }}
+  }});
+
+  // Gráfico 2 — Posts por semana FB vs IG
+  const timeMap = {{}};
+  for (const p of posts) {{
+    const dt = new Date(p.criado_em + 'T12:00:00');
+    dt.setDate(dt.getDate() - dt.getDay());
+    const key = dt.toISOString().slice(0,10);
+    if (!timeMap[key]) timeMap[key] = {{fb:0, ig:0}};
+    timeMap[key][p.plataforma==='instagram'?'ig':'fb']++;
+  }}
+  const tKeys = Object.keys(timeMap).sort();
+  makeChart('chartOrgTimeline', {{
+    type:'bar',
+    data:{{ labels:tKeys.map(k=>k.slice(5)),
+      datasets:[
+        {{label:'Facebook',  data:tKeys.map(k=>timeMap[k].fb), backgroundColor:'rgba(24,119,242,.7)', borderRadius:3, stack:'s'}},
+        {{label:'Instagram', data:tKeys.map(k=>timeMap[k].ig), backgroundColor:'rgba(225,48,108,.7)', borderRadius:3, stack:'s'}},
+      ] }},
+    options:{{ responsive:true, interaction:{{mode:'index',intersect:false}},
+      plugins:{{legend:{{labels:{{boxWidth:12}}}}}},
+      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true,ticks:{{stepSize:1}}}}}} }}
+  }});
+
+  // Gráfico 3 — Engajamento médio por tipo de post
+  const tipoMap = {{}};
+  for (const p of posts) {{
+    const t = p.tipo || 'outro';
+    if (!tipoMap[t]) tipoMap[t] = {{total:0, count:0}};
+    tipoMap[t].total += p.plataforma==='instagram' ? engIg(p) : engFb(p);
+    tipoMap[t].count++;
+  }}
+  const tipoEntries = Object.entries(tipoMap).sort((a,b)=>(b[1].total/b[1].count)-(a[1].total/a[1].count));
+  const COLORS = ['rgba(99,102,241,.75)','rgba(34,197,94,.75)','rgba(245,158,11,.75)','rgba(6,182,212,.75)','rgba(236,72,153,.75)'];
+  makeChart('chartOrgTipos', {{
+    type:'bar',
+    data:{{ labels:tipoEntries.map(([t])=>t),
+      datasets:[{{ label:'Eng. Médio',
+        data:tipoEntries.map(([,v])=>Math.round(v.total/v.count)),
+        backgroundColor:tipoEntries.map((_,i)=>COLORS[i%COLORS.length]), borderRadius:4 }}] }},
+    options:{{ indexAxis:'y', responsive:true, plugins:{{legend:{{display:false}}}},
+      scales:{{x:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true}},y:{{grid:{{display:false}}}}}} }}
+  }});
+
+  // Gráfico 4 — Alcance semanal FB vs IG
+  const alcMap = {{}};
+  for (const p of posts) {{
+    const dt = new Date(p.criado_em + 'T12:00:00');
+    dt.setDate(dt.getDate() - dt.getDay());
+    const key = dt.toISOString().slice(0,10);
+    if (!alcMap[key]) alcMap[key] = {{fb:0, ig:0}};
+    alcMap[key][p.plataforma==='instagram'?'ig':'fb'] += (p.alcance||0);
+  }}
+  const aKeys = Object.keys(alcMap).sort();
+  makeChart('chartOrgAlcance', {{
+    type:'line',
+    data:{{ labels:aKeys.map(k=>k.slice(5)),
+      datasets:[
+        {{label:'Facebook',  data:aKeys.map(k=>alcMap[k].fb), borderColor:'#1877f2', backgroundColor:'rgba(24,119,242,.1)', fill:true, tension:0.4, pointRadius:2}},
+        {{label:'Instagram', data:aKeys.map(k=>alcMap[k].ig), borderColor:'#e1306c', backgroundColor:'rgba(225,48,108,.1)', fill:true, tension:0.4, pointRadius:2}},
+      ] }},
+    options:{{ responsive:true, interaction:{{mode:'index',intersect:false}},
+      plugins:{{legend:{{labels:{{boxWidth:12}}}}}},
+      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true}}}} }}
+  }});
+}}
+
 // ─── Init flatpickr ───────────────────────────────────────────────────────────
 // ─── Card collapse ────────────────────────────────────────────────────────────
 function toggleCard(bodyId, btnId) {{
@@ -1737,38 +2125,61 @@ def main():
             sys.exit(1)
         print(f"       Meta carregado do HTML existente.")
     else:
-        print("[ 1/7 ] Meta Ads — resumo 30d (API)...")
+        print("[ 1/8 ] Meta Ads — resumo 30d (API)...")
         d30 = buscar_meta_periodo("last_30d")
         print(f"       Gasto R${d30['gasto']:,.2f} | CTR {d30['ctr']}% | Conv.Inic. {d30['conversas']}")
 
-        print("[ 2/7 ] Meta Ads — campanhas 30d...")
+        print("[ 2/8 ] Meta Ads — campanhas 30d...")
         campanhas = buscar_meta_campanhas("last_30d")
         print(f"       {len(campanhas)} campanhas")
 
-        print("[ 3/7 ] Meta Ads — diario conta 90d...")
+        print("[ 3/8 ] Meta Ads — diario conta 90d...")
         diario = buscar_meta_diario(90)
         print(f"       {len(diario)} dias")
 
-        print("[ 4/7 ] Meta Ads — diário por campanha 90d...")
+        print("[ 4/8 ] Meta Ads — diário por campanha 90d...")
         camps_diario = buscar_meta_diario_campanhas(90)
         print(f"       {len(camps_diario)} campanhas × 90d")
 
-        print("[ 5/7 ] Meta Ads — criativos 30d...")
+        print("[ 5/8 ] Meta Ads — criativos 30d...")
         criativos = buscar_meta_criativos("last_30d")
         print(f"       {len(criativos)} criativos ativos")
 
         meta = {"d30": d30, "campanhas": campanhas, "diario": diario}
 
-    print("[ 6/7 ] Rezdy — reservas (histórico completo)...")
+    print("[ 6/8 ] Meta Orgânico — descobrindo páginas e posts...")
+    organico_fb, organico_ig = [], []
+    try:
+        paginas = buscar_paginas()
+        if paginas:
+            page       = paginas[0]
+            page_id    = page["id"]
+            page_token = page.get("access_token", META_TOKEN)
+            ig_info    = page.get("instagram_business_account") or {}
+            ig_id      = ig_info.get("id", "")
+            print(f"       Página: {page.get('name','?')} (id={page_id})")
+            organico_fb = buscar_organico_facebook(page_id, page_token, 90)
+            print(f"       {len(organico_fb)} posts Facebook")
+            if ig_id:
+                organico_ig = buscar_organico_instagram(ig_id, 90)
+                print(f"       {len(organico_ig)} posts Instagram (ig_id={ig_id})")
+            else:
+                print("       Instagram Business Account não encontrado na página.")
+        else:
+            print("       Nenhuma página retornada — dados orgânicos não disponíveis.")
+    except Exception as e:
+        print(f"       AVISO: dados orgânicos indisponíveis: {e}")
+
+    print("[ 7/8 ] Rezdy — reservas (histórico completo)...")
     reservas = buscar_rezdy_reservas(5000, date_start="2019-01-01")
     print(f"       {len(reservas)} reservas")
 
-    print("[ 7/7 ] Processando e gerando HTML...")
+    print("[ 8/8 ] Processando e gerando HTML...")
     rezdy_dados = processar_rezdy(reservas)
     data_min = rezdy_dados["por_dia"][0]["data"] if rezdy_dados["por_dia"] else "?"
     print(f"       {data_min} a hoje: {rezdy_dados['confirmadas']} conf | R${rezdy_dados['receita']:,.2f} | {len(rezdy_dados['todos_bookings'])} bookings")
 
-    html = gerar_html(meta, rezdy_dados, camps_diario, criativos, agora)
+    html = gerar_html(meta, rezdy_dados, camps_diario, criativos, agora, organico_fb, organico_ig)
 
     with open(ARQUIVO_HTML, "w", encoding="utf-8") as f:
         f.write(html)
