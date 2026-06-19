@@ -229,17 +229,33 @@ def buscar_paginas():
 
 
 def buscar_organico_facebook(page_id, page_token, dias=90):
-    """Busca posts orgânicos da Page Facebook com insights e reações."""
+    """Busca posts orgânicos da Page Facebook com insights e reações.
+    Não usa o parâmetro 'since' (deprecado na v3.3+); filtra por data em Python."""
     hoje  = datetime.now()
-    since = int((hoje - timedelta(days=dias)).timestamp())
+    corte = (hoje - timedelta(days=dias)).strftime("%Y-%m-%d")
     resp  = requests.get(f"{META_BASE}/{page_id}/posts", params={
         "access_token": page_token,
-        "fields": "id,message,story,created_time,type",
-        "since": since,
+        "fields": "id,message,story,created_time",
         "limit": 100,
     }, timeout=20)
     resp.raise_for_status()
-    posts = _paginar(resp.json())
+
+    # Pagina até encontrar posts mais antigos que o corte
+    todos = []
+    data  = resp.json()
+    while True:
+        lote = data.get("data", [])
+        for p in lote:
+            if (p.get("created_time", "")[:10]) >= corte:
+                todos.append(p)
+        # Para se o último post do lote é mais antigo que o corte
+        if not lote or lote[-1].get("created_time", "")[:10] < corte:
+            break
+        next_url = data.get("paging", {}).get("next")
+        if not next_url:
+            break
+        data = requests.get(next_url, timeout=20).json()
+    posts = todos
 
     resultado = []
     for post in posts:
@@ -286,37 +302,45 @@ def buscar_organico_facebook(page_id, page_token, dias=90):
 
 
 def buscar_organico_instagram(ig_id, dias=90):
-    """Busca posts orgânicos do Instagram Business Account."""
-    hoje  = datetime.now()
-    since = int((hoje - timedelta(days=dias)).timestamp())
+    """Busca posts orgânicos do Instagram Business Account.
+    Usa apenas campos básicos (sem insights.metric) para evitar erro de permissão.
+    Filtra por data em Python, sem o parâmetro 'since' (deprecado)."""
+    corte = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
     resp  = requests.get(f"{META_BASE}/{ig_id}/media", params={
         "access_token": META_TOKEN,
-        "fields": "id,caption,media_type,timestamp,like_count,comments_count,"
-                  "insights.metric(impressions,reach,saved,video_views)",
-        "since": since,
+        "fields": "id,caption,media_type,timestamp,like_count,comments_count",
         "limit": 50,
     }, timeout=20)
     resp.raise_for_status()
-    posts = _paginar(resp.json())
+
+    todos = []
+    data  = resp.json()
+    while True:
+        lote = data.get("data", [])
+        for p in lote:
+            if (p.get("timestamp", "")[:10]) >= corte:
+                todos.append(p)
+        if not lote or lote[-1].get("timestamp", "")[:10] < corte:
+            break
+        next_url = data.get("paging", {}).get("next")
+        if not next_url:
+            break
+        data = requests.get(next_url, timeout=20).json()
 
     resultado = []
-    for post in posts:
-        ins_data = {
-            i["name"]: int((i.get("values") or [{}])[0].get("value", 0) or 0)
-            for i in (post.get("insights") or {}).get("data", [])
-        }
+    for post in todos:
         resultado.append({
             "id":                post.get("id", ""),
             "tipo":              post.get("media_type", "IMAGE").lower(),
             "plataforma":        "instagram",
             "mensagem":          (post.get("caption") or "")[:180],
             "criado_em":         post.get("timestamp", "")[:10],
-            "impressoes":        ins_data.get("impressions", 0),
-            "alcance":           ins_data.get("reach", 0),
+            "impressoes":        0,
+            "alcance":           0,
             "curtidas":          int(post.get("like_count", 0) or 0),
             "comentarios":       int(post.get("comments_count", 0) or 0),
-            "salvos":            ins_data.get("saved", 0),
-            "video_views":       ins_data.get("video_views", 0),
+            "salvos":            0,
+            "video_views":       0,
             "engajados":         0,
             "cliques":           0,
             "compartilhamentos": 0,
@@ -2151,24 +2175,30 @@ def main():
     organico_fb, organico_ig = [], []
     try:
         paginas = buscar_paginas()
-        if paginas:
+        if not paginas:
+            print("       Nenhuma página retornada — dados orgânicos não disponíveis.")
+        else:
             page       = paginas[0]
             page_id    = page["id"]
             page_token = page.get("access_token", META_TOKEN)
             ig_info    = page.get("instagram_business_account") or {}
             ig_id      = ig_info.get("id", "")
             print(f"       Página: {page.get('name','?')} (id={page_id})")
-            organico_fb = buscar_organico_facebook(page_id, page_token, 90)
-            print(f"       {len(organico_fb)} posts Facebook")
+            try:
+                organico_fb = buscar_organico_facebook(page_id, page_token, 90)
+                print(f"       {len(organico_fb)} posts Facebook")
+            except Exception as e_fb:
+                print(f"       AVISO Facebook orgânico: {e_fb}")
             if ig_id:
-                organico_ig = buscar_organico_instagram(ig_id, 90)
-                print(f"       {len(organico_ig)} posts Instagram (ig_id={ig_id})")
+                try:
+                    organico_ig = buscar_organico_instagram(ig_id, 90)
+                    print(f"       {len(organico_ig)} posts Instagram")
+                except Exception as e_ig:
+                    print(f"       AVISO Instagram (sem permissão instagram_basic): {type(e_ig).__name__}")
             else:
                 print("       Instagram Business Account não encontrado na página.")
-        else:
-            print("       Nenhuma página retornada — dados orgânicos não disponíveis.")
     except Exception as e:
-        print(f"       AVISO: dados orgânicos indisponíveis: {e}")
+        print(f"       AVISO geral orgânico: {e}")
 
     print("[ 7/8 ] Rezdy — reservas (histórico completo)...")
     reservas = buscar_rezdy_reservas(5000, date_start="2019-01-01")
