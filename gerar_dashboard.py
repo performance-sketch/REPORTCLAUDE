@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 # ─── Credenciais ──────────────────────────────────────────────────────────────
-META_TOKEN   = "EAASW2NZCdwiwBRzAyv3BI9sw7FdZA7WWeHJUvJBDQ43pMtWW3eEwPZBFZA7gxjQYnTr1boIyPeUZCnRJDsE99OJGkhrZBHQtjKgPUBOACGa3fSn5bcIjjZAIO5e4kbAQUK1xBnBhrIpYBWpUuDzselEusCqgFwx9eZBak3SNBlWEq67AOSn7Nvd6M5CeRJI5FzS73ZAWCImTkuQmwjeBdGarsFXSvfmridMe7rRrFwcFM3CUa98c3s4cHn4GwkP80dBnZCwAcgLeiXiKtswQtobtTgY6JG"
+META_TOKEN   = "EAASW2NZCdwiwBRjZBpgb4Unpo2rqHB8iSJfZAt3BkkHB3pxrkevSo0UYx5RnF5hN7dnZCUV5yqwuPtfVUqhE3gAyOcfbLvYVhmMb5Cq1OAZBtJQ9cCRQAIce6wU7QNiX1iy11KH8tELm38U8HKTZCIgriWrUZBUdP4l60xZB4zxDgJVyZAC2bllLHsyDHnos83noLfm9SX14s0ZCmAP0iLTZBAw5OShUTb84yf4AgQCz201"
 META_ACCOUNT = "act_2613909812239242"
 META_BASE    = "https://graph.facebook.com/v19.0"
 REZDY_KEY    = "dc7f8d97256e484b8763a983ded2ba22"
