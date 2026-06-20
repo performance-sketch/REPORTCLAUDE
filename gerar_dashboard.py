@@ -1186,6 +1186,8 @@ let currentFrom = D30_FROM, currentTo = HOJE;
 const fBRL = v => 'R$ ' + Number(v).toLocaleString('pt-BR',{{minimumFractionDigits:2,maximumFractionDigits:2}});
 const fN   = v => Math.round(v).toLocaleString('pt-BR');
 const fPct = v => Number(v).toFixed(2) + '%';
+const fDate = d => d && d.length >= 10 ? d.slice(8)+'-'+d.slice(5,7)+'-'+d.slice(0,4) : (d||'—');
+const fAxis = d => d && d.length >= 10 ? d.slice(8)+'-'+d.slice(5,7) : d;
 
 function setText(id, val) {{
   const el = document.getElementById(id);
@@ -1223,7 +1225,7 @@ function updateChart(id, labels, datasetsData) {{
 
 // ─── Chart builders ───────────────────────────────────────────────────────────
 function buildMetaDiario(canvasId, mDays) {{
-  const labels = mDays.map(d => d.data.slice(5));
+  const labels = mDays.map(d => fAxis(d.data));
   makeChart(canvasId, {{
     type: 'bar',
     data: {{
@@ -1282,7 +1284,7 @@ function setRezdyView(view) {{
 }}
 
 function buildRezdyDiario(canvasId, rDays) {{
-  const labelFmt = d => _rezdyView === 'mes' ? d.data : d.data.slice(5);
+  const labelFmt = d => _rezdyView === 'mes' ? d.data : fAxis(d.data);
   makeChart(canvasId, {{
     type:'bar',
     data:{{
@@ -1301,7 +1303,7 @@ function buildRezdyDiario(canvasId, rDays) {{
 }}
 
 function buildRezdyReceita(canvasId, rDays) {{
-  const labelFmt = d => _rezdyView === 'mes' ? d.data : d.data.slice(5);
+  const labelFmt = d => _rezdyView === 'mes' ? d.data : fAxis(d.data);
   makeChart(canvasId, {{
     type:'line',
     data:{{
@@ -1341,7 +1343,7 @@ function buildBookingVsFulfilment(canvasId, from, to) {{
     return date.slice(0,7);
   }};
 
-  const dispLabel = k => _fulfilView === 'mes' ? k : k.slice(5);
+  const dispLabel = k => _fulfilView === 'mes' ? k : fAxis(k);
 
   const bookMap = {{}};
   const fulfMap = {{}};
@@ -1415,7 +1417,7 @@ function buildBookingsFonte(from, to) {{
   }}
 
   const labels = Object.keys(agg).sort();
-  const dispLabel = l => _fonteView === 'mes' ? l.slice(0,7) : l.slice(5);
+  const dispLabel = l => _fonteView === 'mes' ? l.slice(0,7) : fAxis(l);
   makeChart('chartBookingsFonte', {{
     type: 'bar',
     data: {{
@@ -1770,8 +1772,8 @@ function renderCupons(from, to) {{
         <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.produto}}</td>
         <td style="text-align:right">${{b.pax || '—'}}</td>
         <td style="text-align:right;color:#22c55e;font-weight:600">${{fBRL(b.valor)}}</td>
-        <td style="color:#94a3b8">${{b.data}}</td>
-        <td style="color:#94a3b8">${{b.tour_dt || '—'}}</td>
+        <td style="color:#94a3b8">${{fDate(b.data)}}</td>
+        <td style="color:#94a3b8">${{b.tour_dt ? fDate(b.tour_dt) : '—'}}</td>
         <td style="font-size:.75rem;color:#94a3b8">${{b.fonte || 'ONLINE'}}</td>
         <td style="color:#94a3b8;font-size:.8rem;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.nome}}</td>
       </tr>`).join('');
@@ -1792,8 +1794,8 @@ function renderBookings(from, to) {{
       <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.p}}</td>
       <td style="text-align:right;color:#94a3b8">${{b.px||1}}</td>
       <td style="text-align:right;font-weight:500">${{fBRL(b.v)}}</td>
-      <td style="color:#94a3b8">${{b.d}}</td>
-      <td style="color:#06b6d4">${{b.t||'—'}}</td>
+      <td style="color:#94a3b8">${{fDate(b.d)}}</td>
+      <td style="color:#06b6d4">${{b.t ? fDate(b.t) : '—'}}</td>
       <td style="font-size:.75rem;color:#94a3b8">${{b.f}}</td>
       <td style="font-size:.8rem" title="${{b.cc}}">${{flag}} ${{b.cc}}</td>
     </tr>`;
