@@ -576,7 +576,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     camps_diario_json = json.dumps(camps_diario,           ensure_ascii=False)
     bookings_json     = json.dumps(rz["todos_bookings"],   ensure_ascii=False)
     heatmap_json      = json.dumps(rz["heatmap"],          ensure_ascii=False)
-    criativos_json    = json.dumps(criativos,              ensure_ascii=False)
+    criativos_json    = json.dumps(criativos if isinstance(criativos, dict) else {"d7": criativos, "d14": criativos, "d30": criativos, "d90": criativos}, ensure_ascii=False)
     organico_lista    = (organico_fb or []) + (organico_ig or [])
     organico_json     = json.dumps(organico_lista,         ensure_ascii=False)
     org_tem_dados     = bool(organico_lista)
@@ -774,8 +774,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <!-- Tabela campanhas -->
   <div class="card">
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">Campanhas — últimos 30 dias</div>
-      <span class="badge badge-gray">dados fixos em 30d · calendário afeta KPIs e gráficos</span>
+      <div style="font-weight:600;font-size:.9rem" id="camps-title">Campanhas</div>
     </div>
     <div style="overflow-x:auto">
       <table>
@@ -801,7 +800,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <!-- Criativos -->
   <div class="card mt-5">
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">🎨 Criativos — últimos 30 dias</div>
+      <div style="font-weight:600;font-size:.9rem" id="criativos-title">🎨 Criativos</div>
       <span class="badge badge-gray">agrupado por tipo · clique no grupo para minimizar</span>
     </div>
     <div id="criativos-content" style="overflow-x:auto">
@@ -1174,7 +1173,7 @@ const REZDY_DATA   = {rezdy_json};
 const CAMPS_DIARIO = {camps_diario_json};
 const BOOKINGS     = {bookings_json};
 const HEATMAP      = {heatmap_json};
-const CRIATIVOS    = {criativos_json};
+const CRIATIVOS_PERIODOS = {criativos_json};
 const VOOS_CUPOM   = {voos_cupom_json};
 const ORGANICO     = {organico_json};
 const CUPOM_STATUS = {cupom_status_json};
@@ -1519,9 +1518,12 @@ function applyDateRange(from, to) {{
   renderCupons(from, to);
   renderOrganico(from, to);
 
-  // ── Range label ──
+  // ── Range label + títulos dinâmicos ──
   const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
   setText('range-label', days + ' dias selecionados');
+  const fmtD = d => d.slice(8) + '-' + d.slice(5,7) + '-' + d.slice(0,4);
+  setText('camps-title', 'Campanhas — ' + fmtD(from) + ' a ' + fmtD(to));
+  renderCriativos(from, to);
 }}
 
 // ─── Render dinâmico de campanhas, produtos e bookings ───────────────────────
@@ -1608,12 +1610,22 @@ function toggleCriativosTipo(tipo) {{
   if (label) label.textContent = hidden ? 'Expandir' : 'Minimizar';
 }}
 
-function renderCriativos() {{
+function renderCriativos(from, to) {{
   const TIPO_COLOR = {{MSG:'#22c55e', CONV:'#6366f1', TRAF:'#06b6d4'}};
   const TIPO_LABEL = {{MSG:'Mensagens', CONV:'Conversão / Carrinho', TRAF:'Tráfego'}};
 
+  // Seleciona o período mais próximo ao range selecionado
+  const days = from && to ? Math.round((new Date(to) - new Date(from)) / 86400000) + 1 : 30;
+  let periodoKey = 'd90';
+  let periodoLabel = 'últ. 90 dias';
+  if (days <= 7)  {{ periodoKey = 'd7';  periodoLabel = 'últ. 7 dias';  }}
+  else if (days <= 14) {{ periodoKey = 'd14'; periodoLabel = 'últ. 14 dias'; }}
+  else if (days <= 30) {{ periodoKey = 'd30'; periodoLabel = 'últ. 30 dias'; }}
+  const data = (CRIATIVOS_PERIODOS[periodoKey] || CRIATIVOS_PERIODOS.d30 || []);
+  setText('criativos-title', '🎨 Criativos — ' + periodoLabel);
+
   const grupos = {{MSG:[], CONV:[], TRAF:[]}};
-  for (const a of CRIATIVOS) {{
+  for (const a of data) {{
     const t = a.camp.includes('[MSG]') ? 'MSG' : a.camp.includes('[CONV]') ? 'CONV' : 'TRAF';
     grupos[t].push({{...a, tipo:t}});
   }}
@@ -2091,7 +2103,7 @@ flatpickr("#date-range", {{
   mode: "range",
   dateFormat: "Y-m-d",
   altInput: true,
-  altFormat: "d/m/Y",
+  altFormat: "d-m-Y",
   defaultDate: [D30_FROM, HOJE],
   minDate: D90_FROM,
   maxDate: HOJE,
@@ -2106,7 +2118,6 @@ flatpickr("#date-range", {{
 
 // ─── Init com últimos 30d ─────────────────────────────────────────────────────
 applyDateRange(D30_FROM, HOJE);
-renderCriativos();
 renderHeatmap();
 </script>
 </body>
@@ -2128,7 +2139,7 @@ def _extrair_meta_do_html():
             return json.loads(m.group(1)) if m else None
         meta       = _extract("META_DATA")
         camps_d    = _extract("CAMPS_DIARIO")
-        criativos  = _extract("CRIATIVOS")
+        criativos  = _extract("CRIATIVOS_PERIODOS")
         return meta, camps_d, criativos
     except Exception as e:
         print(f"       AVISO: não foi possível extrair Meta do HTML: {e}")
@@ -2165,9 +2176,13 @@ def main():
         camps_diario = buscar_meta_diario_campanhas(90)
         print(f"       {len(camps_diario)} campanhas × 90d")
 
-        print("[ 5/8 ] Meta Ads — criativos 30d...")
-        criativos = buscar_meta_criativos("last_30d")
-        print(f"       {len(criativos)} criativos ativos")
+        print("[ 5/8 ] Meta Ads — criativos 4 períodos (7d/14d/30d/90d)...")
+        criativos_d7  = buscar_meta_criativos("last_7d")
+        criativos_d14 = buscar_meta_criativos("last_14d")
+        criativos_d30 = buscar_meta_criativos("last_30d")
+        criativos_d90 = buscar_meta_criativos("last_90d")
+        criativos = {"d7": criativos_d7, "d14": criativos_d14, "d30": criativos_d30, "d90": criativos_d90}
+        print(f"       {len(criativos_d30)} criativos ativos (30d)")
 
         meta = {"d30": d30, "campanhas": campanhas, "diario": diario}
 
