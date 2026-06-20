@@ -755,7 +755,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
 <!-- ═══════════════════════════ META ADS ══════════════════════════════════ -->
 <div id="tab-meta" class="tab-content pt-3" style="display:none">
 
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5" id="meta-kpis-cards">
+  <div class="grid grid-cols-2 gap-3 mb-5" id="meta-kpis-cards">
     <div class="card"><div class="kpi-label">Gasto</div><div class="kpi-val" id="mk-gasto" style="color:var(--indigo)">{fmt_brl(d30["gasto"])}</div></div>
     <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="mk-impr">{fmt_n(d30["impressoes"])}</div></div>
     <div class="card"><div class="kpi-label">Cliques</div><div class="kpi-val" id="mk-click">{fmt_n(d30["cliques"])}</div></div>
@@ -766,17 +766,17 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     <div class="card"><div class="kpi-label">Conexões Msg</div><div class="kpi-val" id="mk-conx" style="color:var(--sub)">{fmt_n(d30["conexoes"])}</div></div>
   </div>
 
-  <div class="card mb-5">
-    <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Gasto & Cliques Diários</div>
-    <canvas id="chartMetaDiario2" height="180"></canvas>
-  </div>
-
-  <!-- Tabela campanhas -->
-  <div class="card">
-    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem" id="camps-title">Campanhas</div>
+  <!-- Gráfico diário + Campanhas lado a lado -->
+  <div class="grid grid-cols-2 gap-4 mb-5">
+    <div class="card">
+      <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Gasto & Cliques Diários</div>
+      <canvas id="chartMetaDiario2" height="260"></canvas>
     </div>
-    <div style="overflow-x:auto">
+    <div class="card">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div style="font-weight:600;font-size:.9rem" id="camps-title">Campanhas</div>
+      </div>
+      <div style="overflow-x:auto">
       <table>
         <thead>
           <tr>
@@ -794,8 +794,9 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
         </thead>
         <tbody id="camps-body"></tbody>
       </table>
+      </div>
     </div>
-  </div>
+  </div><!-- /grid gráfico+campanhas -->
 
   <!-- Criativos -->
   <div class="card mt-5">
@@ -827,7 +828,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
 <!-- ═══════════════════════════ REZDY ════════════════════════════════════ -->
 <div id="tab-rezdy" class="tab-content pt-3" style="display:none">
 
-  <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
+  <div class="grid grid-cols-2 gap-3 mb-5">
     <div class="card"><div class="kpi-label">Total Reservas</div><div class="kpi-val" id="rk-total">{rz["total"]}</div></div>
     <div class="card"><div class="kpi-label">Confirmadas</div><div class="kpi-val" id="rk-conf" style="color:var(--green)">{rz["confirmadas"]}</div></div>
     <div class="card"><div class="kpi-label">Voos Realizados</div><div class="kpi-val" id="rk-fulfilments" style="color:var(--cyan)">{rz["fulfilments"]}</div><div class="kpi-delta">pelo dia do voo</div></div>
@@ -862,38 +863,38 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     </div>
   </div>
 
-  <!-- Bookings por Fonte -->
-  <div class="card mb-5">
-    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">Bookings: Online vs Interno vs Outros</div>
-      <div style="display:flex;gap:6px">
-        <button onclick="setFonteView('dia')"   id="fonte-btn-dia"    class="tab-btn active" style="padding:4px 12px;font-size:.75rem">Dia</button>
-        <button onclick="setFonteView('semana')" id="fonte-btn-semana" class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Semana</button>
-        <button onclick="setFonteView('mes')"    id="fonte-btn-mes"    class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Mês</button>
-      </div>
-    </div>
-    <canvas id="chartBookingsFonte" height="180"></canvas>
-  </div>
-
-  <!-- Booking vs Fulfilment -->
-  <div class="card mb-5">
-    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">Dia da Reserva vs Dia do Voo (Fulfilment)</div>
-      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-        <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
-          <span style="display:inline-block;width:12px;height:12px;background:rgba(99,102,241,.65);border-radius:2px"></span>Reservas feitas
-        </span>
-        <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
-          <span style="display:inline-block;width:22px;height:2px;background:#06b6d4;border-radius:2px"></span>Voos realizados
-        </span>
-        <div style="display:flex;gap:4px">
-          <button onclick="setFulfilView('dia')"    id="fulfil-btn-dia"    class="tab-btn active" style="padding:3px 10px;font-size:.72rem">Dia</button>
-          <button onclick="setFulfilView('semana')" id="fulfil-btn-semana" class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Semana</button>
-          <button onclick="setFulfilView('mes')"    id="fulfil-btn-mes"    class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Mês</button>
+  <!-- Bookings por Fonte + Booking vs Fulfilment lado a lado -->
+  <div class="grid grid-cols-2 gap-4 mb-5">
+    <div class="card">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div style="font-weight:600;font-size:.9rem">Bookings: Online vs Interno vs Outros</div>
+        <div style="display:flex;gap:6px">
+          <button onclick="setFonteView('dia')"   id="fonte-btn-dia"    class="tab-btn active" style="padding:4px 12px;font-size:.75rem">Dia</button>
+          <button onclick="setFonteView('semana')" id="fonte-btn-semana" class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Semana</button>
+          <button onclick="setFonteView('mes')"    id="fonte-btn-mes"    class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Mês</button>
         </div>
       </div>
+      <canvas id="chartBookingsFonte" height="200"></canvas>
     </div>
-    <canvas id="chartBookingVsFulfilment" height="190"></canvas>
+    <div class="card">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div style="font-weight:600;font-size:.9rem">Dia da Reserva vs Dia do Voo</div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
+            <span style="display:inline-block;width:12px;height:12px;background:rgba(99,102,241,.65);border-radius:2px"></span>Reservas feitas
+          </span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
+            <span style="display:inline-block;width:22px;height:2px;background:#06b6d4;border-radius:2px"></span>Voos realizados
+          </span>
+          <div style="display:flex;gap:4px">
+            <button onclick="setFulfilView('dia')"    id="fulfil-btn-dia"    class="tab-btn active" style="padding:3px 10px;font-size:.72rem">Dia</button>
+            <button onclick="setFulfilView('semana')" id="fulfil-btn-semana" class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Semana</button>
+            <button onclick="setFulfilView('mes')"    id="fulfil-btn-mes"    class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Mês</button>
+          </div>
+        </div>
+      </div>
+      <canvas id="chartBookingVsFulfilment" height="200"></canvas>
+    </div>
   </div>
 
   <!-- Heatmap: mês da reserva × mês do voo -->
