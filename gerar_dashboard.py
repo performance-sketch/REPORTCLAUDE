@@ -2420,92 +2420,99 @@ flatpickr("#date-range", {{
   }}
 }});
 
-// ─── Receita histórica mensal (todos os anos, imune ao filtro de datas) ──────
+// ─── Receita histórica — Month by Month / Previous Year Comparison ───────────
 function buildReceitaHistorico() {{
   const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const YEAR_COLORS = [
-    '#6366f1','#22c55e','#f59e0b','#ef4444',
-    '#06b6d4','#a855f7','#f97316','#14b8a6',
+
+  // Paleta e estilo por ano (ano mais recente = linha cheia, anteriores = tracejadas)
+  const YEAR_STYLE = [
+    {{ color: '#22c55e', width: 2.5, dash: [],     fill: '#22c55e12', radius: 4 }},
+    {{ color: '#6366f1', width: 2,   dash: [6,3],  fill: false,       radius: 3 }},
+    {{ color: '#f59e0b', width: 2,   dash: [4,4],  fill: false,       radius: 3 }},
+    {{ color: '#ef4444', width: 1.5, dash: [3,3],  fill: false,       radius: 3 }},
   ];
 
-  // Agrupa receita confirmada por ano e mês
-  const byYearMonth = {{}};
+  // Agrupa receita confirmada pelo mês do VOO (tour date = fulfillment)
+  // Fallback para data de criação se não houver tour date
+  const byYearMo = {{}};
   for (const b of BOOKINGS) {{
-    if (b.s !== 'CONFIRMED' || !b.d) continue;
-    const yr = b.d.slice(0,4);
-    const mo = parseInt(b.d.slice(5,7), 10) - 1; // 0-based
-    if (!byYearMonth[yr]) byYearMonth[yr] = new Array(12).fill(0);
-    byYearMonth[yr][mo] += (b.v || 0);
+    if (b.s !== 'CONFIRMED') continue;
+    const dateStr = b.t || b.d;
+    if (!dateStr) continue;
+    const yr = dateStr.slice(0, 4);
+    const mo = parseInt(dateStr.slice(5, 7), 10) - 1; // 0-based
+    if (!byYearMo[yr]) byYearMo[yr] = new Array(12).fill(null);
+    byYearMo[yr][mo] = (byYearMo[yr][mo] || 0) + (b.v || 0);
   }}
 
-  const years = Object.keys(byYearMonth).sort();
-  let hiddenYears = new Set();
+  // Ordena anos — mais recente primeiro para legenda, mas datasets do mais antigo ao mais novo
+  const yearsDesc = Object.keys(byYearMo).sort().reverse();
+  const yearsAsc  = [...yearsDesc].reverse();
 
-  function draw() {{
-    const datasets = years.map((yr, i) => ({{
+  const datasets = yearsAsc.map((yr, idx) => {{
+    const styleIdx = yearsAsc.length - 1 - idx; // mais recente = índice 0 no estilo
+    const s = YEAR_STYLE[Math.min(styleIdx, YEAR_STYLE.length - 1)];
+    return {{
       label: yr,
-      data: byYearMonth[yr].map(v => Math.round(v * 100) / 100),
-      borderColor: YEAR_COLORS[i % YEAR_COLORS.length],
-      backgroundColor: YEAR_COLORS[i % YEAR_COLORS.length] + '18',
-      pointRadius: 4,
-      pointHoverRadius: 6,
-      borderWidth: 2,
-      tension: 0.3,
-      fill: false,
-      hidden: hiddenYears.has(yr),
-    }}));
+      data: byYearMo[yr].map(v => v === null ? null : Math.round(v * 100) / 100),
+      borderColor: s.color,
+      backgroundColor: s.fill || 'transparent',
+      pointBackgroundColor: s.color,
+      pointRadius: s.radius,
+      pointHoverRadius: s.radius + 2,
+      borderWidth: s.width,
+      borderDash: s.dash,
+      tension: 0.35,
+      fill: !!s.fill,
+      spanGaps: false,
+    }};
+  }});
 
-    makeChart('chartReceitaHistorico', {{
-      type: 'line',
-      data: {{ labels: MESES, datasets }},
-      options: {{
-        responsive: true,
-        maintainAspectRatio: true,
-        interaction: {{ mode: 'index', intersect: false }},
-        plugins: {{
-          legend: {{ display: false }},
-          tooltip: {{
-            callbacks: {{
-              label: ctx => ' ' + ctx.dataset.label + ': ' + fBRL(ctx.parsed.y),
-            }}
-          }}
-        }},
-        scales: {{
-          x: {{ grid: {{ color: 'rgba(51,65,85,.4)' }} }},
-          y: {{
-            beginAtZero: true,
-            grid: {{ color: 'rgba(51,65,85,.4)' }},
-            ticks: {{ callback: v => 'R$' + (v>=1000 ? (v/1000).toFixed(0)+'k' : v) }},
+  makeChart('chartReceitaHistorico', {{
+    type: 'line',
+    data: {{ labels: MESES, datasets }},
+    options: {{
+      responsive: true,
+      maintainAspectRatio: true,
+      interaction: {{ mode: 'index', intersect: false }},
+      plugins: {{
+        legend: {{ display: false }},
+        tooltip: {{
+          callbacks: {{
+            label: ctx => ctx.parsed.y !== null
+              ? ' ' + ctx.dataset.label + ': ' + fBRL(ctx.parsed.y)
+              : ' ' + ctx.dataset.label + ': —',
           }}
         }}
+      }},
+      scales: {{
+        x: {{ grid: {{ color: 'rgba(51,65,85,.3)' }} }},
+        y: {{
+          beginAtZero: true,
+          grid: {{ color: 'rgba(51,65,85,.4)' }},
+          ticks: {{ callback: v => v >= 1000000
+            ? 'R$' + (v/1000000).toFixed(1) + 'M'
+            : 'R$' + (v/1000).toFixed(0) + 'k'
+          }},
+        }}
       }}
-    }});
-  }}
+    }}
+  }});
 
-  // Botões de toggle por ano
+  // Legenda manual
   const togglesEl = document.getElementById('hist-year-toggles');
   if (togglesEl) {{
-    togglesEl.innerHTML = years.map((yr, i) => {{
-      const col = YEAR_COLORS[i % YEAR_COLORS.length];
-      return `<button onclick="histToggleYear('${{yr}}')" id="hist-btn-${{yr}}"
-        style="background:${{col}};color:#fff;border:none;border-radius:6px;
-               padding:3px 12px;font-size:.75rem;font-weight:600;cursor:pointer;
-               opacity:1;transition:opacity .15s">${{yr}}</button>`;
+    togglesEl.innerHTML = yearsDesc.map((yr, i) => {{
+      const s = YEAR_STYLE[Math.min(i, YEAR_STYLE.length - 1)];
+      const dashStyle = s.dash.length
+        ? `border-top: 2px dashed ${{s.color}}`
+        : `border-top: 2.5px solid ${{s.color}}`;
+      return `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;color:var(--sub)">
+        <span style="display:inline-block;width:22px;height:0;${{dashStyle}}"></span>
+        <span style="font-weight:${{i===0?'700':'400'}};color:${{i===0?s.color:'var(--sub)'}}">${{yr}}</span>
+      </span>`;
     }}).join('');
   }}
-
-  window._histDraw = draw;
-  window._histHiddenYears = hiddenYears;
-  draw();
-}}
-
-window.histToggleYear = function(yr) {{
-  const hidden = window._histHiddenYears;
-  if (hidden.has(yr)) hidden.delete(yr);
-  else hidden.add(yr);
-  const btn = document.getElementById('hist-btn-' + yr);
-  if (btn) btn.style.opacity = hidden.has(yr) ? '0.3' : '1';
-  if (window._histDraw) window._histDraw();
 }};
 
 // ─── Init com últimos 30d ─────────────────────────────────────────────────────
