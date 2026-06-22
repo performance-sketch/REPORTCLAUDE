@@ -900,6 +900,18 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     <div class="card"><div class="kpi-label">Projeção Mensal</div><div class="kpi-val" id="rk-proj" style="color:var(--amber);font-size:1.2rem">—</div><div class="kpi-delta" id="rk-proj-sub">confirmações estimadas</div></div>
   </div>
 
+  <!-- Receita Histórica — imune ao filtro de datas -->
+  <div class="card mb-5">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div>
+        <div style="font-weight:600;font-size:.9rem">Receita Confirmada — Histórico Mensal (todos os anos)</div>
+        <div style="font-size:.72rem;color:var(--sub);margin-top:2px">Baseado em todas as reservas · não muda com o filtro de datas</div>
+      </div>
+      <div style="display:flex;gap:6px" id="hist-year-toggles"></div>
+    </div>
+    <canvas id="chartReceitaHistorico" height="160"></canvas>
+  </div>
+
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
     <div class="card">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -2408,9 +2420,98 @@ flatpickr("#date-range", {{
   }}
 }});
 
+// ─── Receita histórica mensal (todos os anos, imune ao filtro de datas) ──────
+function buildReceitaHistorico() {{
+  const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const YEAR_COLORS = [
+    '#6366f1','#22c55e','#f59e0b','#ef4444',
+    '#06b6d4','#a855f7','#f97316','#14b8a6',
+  ];
+
+  // Agrupa receita confirmada por ano e mês
+  const byYearMonth = {{}};
+  for (const b of BOOKINGS) {{
+    if (b.s !== 'CONFIRMED' || !b.d) continue;
+    const yr = b.d.slice(0,4);
+    const mo = parseInt(b.d.slice(5,7), 10) - 1; // 0-based
+    if (!byYearMonth[yr]) byYearMonth[yr] = new Array(12).fill(0);
+    byYearMonth[yr][mo] += (b.v || 0);
+  }}
+
+  const years = Object.keys(byYearMonth).sort();
+  let hiddenYears = new Set();
+
+  function draw() {{
+    const datasets = years.map((yr, i) => ({{
+      label: yr,
+      data: byYearMonth[yr].map(v => Math.round(v * 100) / 100),
+      borderColor: YEAR_COLORS[i % YEAR_COLORS.length],
+      backgroundColor: YEAR_COLORS[i % YEAR_COLORS.length] + '18',
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      borderWidth: 2,
+      tension: 0.3,
+      fill: false,
+      hidden: hiddenYears.has(yr),
+    }}));
+
+    makeChart('chartReceitaHistorico', {{
+      type: 'line',
+      data: {{ labels: MESES, datasets }},
+      options: {{
+        responsive: true,
+        maintainAspectRatio: true,
+        interaction: {{ mode: 'index', intersect: false }},
+        plugins: {{
+          legend: {{ display: false }},
+          tooltip: {{
+            callbacks: {{
+              label: ctx => ' ' + ctx.dataset.label + ': ' + fBRL(ctx.parsed.y),
+            }}
+          }}
+        }},
+        scales: {{
+          x: {{ grid: {{ color: 'rgba(51,65,85,.4)' }} }},
+          y: {{
+            beginAtZero: true,
+            grid: {{ color: 'rgba(51,65,85,.4)' }},
+            ticks: {{ callback: v => 'R$' + (v>=1000 ? (v/1000).toFixed(0)+'k' : v) }},
+          }}
+        }}
+      }}
+    }});
+  }}
+
+  // Botões de toggle por ano
+  const togglesEl = document.getElementById('hist-year-toggles');
+  if (togglesEl) {{
+    togglesEl.innerHTML = years.map((yr, i) => {{
+      const col = YEAR_COLORS[i % YEAR_COLORS.length];
+      return `<button onclick="histToggleYear('${{yr}}')" id="hist-btn-${{yr}}"
+        style="background:${{col}};color:#fff;border:none;border-radius:6px;
+               padding:3px 12px;font-size:.75rem;font-weight:600;cursor:pointer;
+               opacity:1;transition:opacity .15s">${{yr}}</button>`;
+    }}).join('');
+  }}
+
+  window._histDraw = draw;
+  window._histHiddenYears = hiddenYears;
+  draw();
+}}
+
+window.histToggleYear = function(yr) {{
+  const hidden = window._histHiddenYears;
+  if (hidden.has(yr)) hidden.delete(yr);
+  else hidden.add(yr);
+  const btn = document.getElementById('hist-btn-' + yr);
+  if (btn) btn.style.opacity = hidden.has(yr) ? '0.3' : '1';
+  if (window._histDraw) window._histDraw();
+}};
+
 // ─── Init com últimos 30d ─────────────────────────────────────────────────────
 applyDateRange(D30_FROM, HOJE);
 renderHeatmap();
+buildReceitaHistorico();
 </script>
 </body>
 </html>"""
