@@ -2075,7 +2075,7 @@ function renderBookings(from, to) {{
       <td style="color:#94a3b8">${{fDate(b.d)}}</td>
       <td style="color:#06b6d4">${{b.t ? fDate(b.t) : '—'}}</td>
       <td style="font-size:.75rem;color:#94a3b8">${{escHtml(b.f||'ONLINE')}}</td>
-      <td style="font-size:.8rem" title="${{escHtml(b.cc||'')}}">${{flag}} ${{escHtml(b.cc||'??')}}</td>
+      <td style="font-size:.8rem" title="${{escHtml(b.cc||'')}}">${{flag}} ${{countryName(b.cc)}}</td>
     </tr>`;
   }}).join('');
   if (filtered.length > 300) {{
@@ -2109,6 +2109,56 @@ function countryFlag(cc) {{
     String.fromCodePoint(0x1F1E6 - 65 + c.charCodeAt(0)));
 }}
 
+const COUNTRY_NAMES = {{
+  'AF':'Afeganistão','AL':'Albânia','DZ':'Argélia','AD':'Andorra','AO':'Angola',
+  'AG':'Antígua e Barbuda','AR':'Argentina','AM':'Armênia','AU':'Austrália',
+  'AT':'Áustria','AZ':'Azerbaijão','BS':'Bahamas','BH':'Bahrein','BD':'Bangladesh',
+  'BB':'Barbados','BY':'Bielorrússia','BE':'Bélgica','BZ':'Belize','BJ':'Benin',
+  'BT':'Butão','BO':'Bolívia','BA':'Bósnia e Herzegovina','BW':'Botsuana',
+  'BR':'Brasil','BN':'Brunei','BG':'Bulgária','BF':'Burkina Faso','BI':'Burundi',
+  'CV':'Cabo Verde','KH':'Camboja','CM':'Camarões','CA':'Canadá','CF':'Rep. Centro-Africana',
+  'TD':'Chade','CL':'Chile','CN':'China','CO':'Colômbia','KM':'Comores',
+  'CG':'Congo','CD':'Congo (RDC)','CR':'Costa Rica','HR':'Croácia','CU':'Cuba',
+  'CY':'Chipre','CZ':'República Tcheca','DK':'Dinamarca','DJ':'Djibuti',
+  'DM':'Dominica','DO':'República Dominicana','EC':'Equador','EG':'Egito',
+  'SV':'El Salvador','GQ':'Guiné Equatorial','ER':'Eritreia','EE':'Estônia',
+  'SZ':'Eswatini','ET':'Etiópia','FJ':'Fiji','FI':'Finlândia','FR':'França',
+  'GA':'Gabão','GM':'Gâmbia','GE':'Geórgia','DE':'Alemanha','GH':'Gana',
+  'GR':'Grécia','GD':'Granada','GT':'Guatemala','GN':'Guiné','GW':'Guiné-Bissau',
+  'GY':'Guiana','HT':'Haiti','HN':'Honduras','HU':'Hungria','IS':'Islândia',
+  'IN':'Índia','ID':'Indonésia','IR':'Irã','IQ':'Iraque','IE':'Irlanda',
+  'IL':'Israel','IT':'Itália','JM':'Jamaica','JP':'Japão','JO':'Jordânia',
+  'KZ':'Cazaquistão','KE':'Quênia','KI':'Kiribati','KP':'Coreia do Norte',
+  'KR':'Coreia do Sul','KW':'Kuwait','KG':'Quirguistão','LA':'Laos','LV':'Letônia',
+  'LB':'Líbano','LS':'Lesoto','LR':'Libéria','LY':'Líbia','LI':'Liechtenstein',
+  'LT':'Lituânia','LU':'Luxemburgo','MG':'Madagascar','MW':'Malawi','MY':'Malásia',
+  'MV':'Maldivas','ML':'Mali','MT':'Malta','MH':'Ilhas Marshall','MR':'Mauritânia',
+  'MU':'Maurício','MX':'México','FM':'Micronésia','MD':'Moldávia','MC':'Mônaco',
+  'MN':'Mongólia','ME':'Montenegro','MA':'Marrocos','MZ':'Moçambique','MM':'Myanmar',
+  'NA':'Namíbia','NR':'Nauru','NP':'Nepal','NL':'Países Baixos','NZ':'Nova Zelândia',
+  'NI':'Nicarágua','NE':'Níger','NG':'Nigéria','MK':'Macedônia do Norte','NO':'Noruega',
+  'OM':'Omã','PK':'Paquistão','PW':'Palau','PA':'Panamá','PG':'Papua Nova Guiné',
+  'PY':'Paraguai','PE':'Peru','PH':'Filipinas','PL':'Polônia','PT':'Portugal',
+  'QA':'Catar','RO':'Romênia','RU':'Rússia','RW':'Ruanda','KN':'São Cristóvão e Nevis',
+  'LC':'Santa Lúcia','VC':'São Vicente e Granadinas','WS':'Samoa','SM':'San Marino',
+  'ST':'São Tomé e Príncipe','SA':'Arábia Saudita','SN':'Senegal','RS':'Sérvia',
+  'SC':'Seicheles','SL':'Serra Leoa','SG':'Singapura','SK':'Eslováquia','SI':'Eslovênia',
+  'SB':'Ilhas Salomão','SO':'Somália','ZA':'África do Sul','SS':'Sudão do Sul',
+  'ES':'Espanha','LK':'Sri Lanka','SD':'Sudão','SR':'Suriname','SE':'Suécia',
+  'CH':'Suíça','SY':'Síria','TW':'Taiwan','TJ':'Tajiquistão','TZ':'Tanzânia',
+  'TH':'Tailândia','TL':'Timor-Leste','TG':'Togo','TO':'Tonga','TT':'Trinidad e Tobago',
+  'TN':'Tunísia','TR':'Turquia','TM':'Turcomenistão','TV':'Tuvalu','UG':'Uganda',
+  'UA':'Ucrânia','AE':'Emirados Árabes','GB':'Reino Unido','US':'Estados Unidos',
+  'UY':'Uruguai','UZ':'Uzbequistão','VU':'Vanuatu','VE':'Venezuela','VN':'Vietnã',
+  'YE':'Iêmen','ZM':'Zâmbia','ZW':'Zimbábue','HK':'Hong Kong','MO':'Macau',
+  'TW':'Taiwan','PS':'Palestina','XK':'Kosovo','??':'Desconhecido',
+}};
+
+function countryName(cc) {{
+  if (!cc) return 'Desconhecido';
+  return COUNTRY_NAMES[cc.toUpperCase()] || cc.toUpperCase();
+}}
+
 function renderPaises(from, to) {{
   const bk = BOOKINGS.filter(b => b.d >= from && b.d <= to && b.s === 'CONFIRMED');
   const paises = {{}};
@@ -2128,7 +2178,7 @@ function renderPaises(from, to) {{
     const flag = countryFlag(cc);
     const pct  = totalBookings ? (v.ordens/totalBookings*100).toFixed(1) : '0.0';
     return `<tr>
-      <td><span style="margin-right:4px">${{flag}}</span>${{cc.toUpperCase()}}</td>
+      <td><span style="margin-right:6px">${{flag}}</span>${{countryName(cc)}}</td>
       <td style="text-align:right;font-weight:600">${{v.ordens}}</td>
       <td style="text-align:right;color:#94a3b8">${{v.pax}}</td>
       <td style="text-align:right">${{fBRL(v.receita)}}</td>
@@ -2164,7 +2214,7 @@ function renderPaises(from, to) {{
       const flag = countryFlag(c.cc);
       return `<tr>
         <td style="font-family:monospace;font-size:.78rem">${{c.n}}</td>
-        <td><span style="margin-right:4px">${{flag}}</span>${{c.cc||'??'}}</td>
+        <td><span style="margin-right:6px">${{flag}}</span>${{countryName(c.cc)}}</td>
         <td style="text-align:right">${{c.ordens}}</td>
         <td style="text-align:right;color:#94a3b8">${{c.pax}}</td>
         <td style="text-align:right;font-weight:600;color:#22c55e">${{fBRL(c.receita)}}</td>
