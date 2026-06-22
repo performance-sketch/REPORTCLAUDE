@@ -3,34 +3,73 @@
 gerar_dashboard.py — Vertical Rio Marketing Dashboard
 Busca dados ao vivo de Meta Ads e Rezdy e gera index.html.
 Execute: python gerar_dashboard.py
+
+Credenciais: defina META_TOKEN e REZDY_KEY no arquivo .env
+             (mesmo diretório) ou como variáveis de ambiente.
+             Exemplo de .env:  META_TOKEN=EAASW...
 """
 
 import json
+import os
+import pathlib
 import time
 import requests
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+# ─── Carrega .env se existir ──────────────────────────────────────────────────
+def _load_env():
+    env_path = pathlib.Path(__file__).parent / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+_load_env()
+
 # ─── Credenciais ──────────────────────────────────────────────────────────────
-META_TOKEN   = "EAASW2NZCdwiwBRzAyv3BI9sw7FdZA7WWeHJUvJBDQ43pMtWW3eEwPZBFZA7gxjQYnTr1boIyPeUZCnRJDsE99OJGkhrZBHQtjKgPUBOACGa3fSn5bcIjjZAIO5e4kbAQUK1xBnBhrIpYBWpUuDzselEusCqgFwx9eZBak3SNBlWEq67AOSn7Nvd6M5CeRJI5FzS73ZAWCImTkuQmwjeBdGarsFXSvfmridMe7rRrFwcFM3CUa98c3s4cHn4GwkP80dBnZCwAcgLeiXiKtswQtobtTgY6JG"
-META_ACCOUNT = "act_2613909812239242"
+_FB_TOKEN_FALLBACK = (
+    "EAASW2NZCdwiwBRjZBpgb4Unpo2rqHB8iSJfZAt3BkkHB3pxrkevSo0UYx5RnF5hN7dn"
+    "ZCUV5yqwuPtfVUqhE3gAyOcfbLvYVhmMb5Cq1OAZBtJQ9cCRQAIce6wU7QNiX1iy11K"
+    "H8tELm38U8HKTZCIgriWrUZBUdP4l60xZB4zxDgJVyZAC2bllLHsyDHnos83noLfm9SX"
+    "14s0ZCmAP0iLTZBAw5OShUTb84yf4AgQCz201"
+)
+META_TOKEN   = os.environ.get("META_TOKEN",   _FB_TOKEN_FALLBACK)
+META_ACCOUNT = os.environ.get("META_ACCOUNT", "act_2613909812239242")
 META_BASE    = "https://graph.facebook.com/v19.0"
-REZDY_KEY    = "dc7f8d97256e484b8763a983ded2ba22"
+REZDY_KEY    = os.environ.get("REZDY_KEY",    "dc7f8d97256e484b8763a983ded2ba22")
 REZDY_BASE   = "https://api.rezdy.com/v1"
 ARQUIVO_HTML = "index.html"
+
+# ─── HTTP com retry exponencial ───────────────────────────────────────────────
+def _req(url, params=None, timeout=20, retries=3):
+    """GET com retry exponencial — 1s, 2s, 4s entre tentativas."""
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+            r.raise_for_status()
+            return r
+        except requests.RequestException as e:
+            if attempt < retries - 1:
+                wait = 2 ** attempt
+                print(f"       [retry {attempt+1}/{retries-1}] {type(e).__name__} — aguardando {wait}s...")
+                time.sleep(wait)
+            else:
+                raise
+
 
 # ─── Meta Ads ─────────────────────────────────────────────────────────────────
 def meta_get(endpoint, params=None):
     p = {"access_token": META_TOKEN, **(params or {})}
-    r = requests.get(f"{META_BASE}/{endpoint}", params=p, timeout=20)
-    r.raise_for_status()
+    r = _req(f"{META_BASE}/{endpoint}", params=p, timeout=20)
     return r.json()
 
 
 def _paginar(resp):
     dados = list(resp.get("data", []))
     while resp.get("paging", {}).get("next"):
-        resp = requests.get(resp["paging"]["next"], timeout=20).json()
+        resp = _req(resp["paging"]["next"], timeout=20).json()
         dados.extend(resp.get("data", []))
     return dados
 
@@ -355,8 +394,7 @@ def buscar_rezdy_reservas(limite_total=5000, date_start="2019-01-01"):
         params = {"apiKey": REZDY_KEY, "limit": 100, "offset": offset}
         if date_start:
             params["orderDateStart"] = date_start
-        resp = requests.get(f"{REZDY_BASE}/bookings", params=params, timeout=20)
-        resp.raise_for_status()
+        resp = _req(f"{REZDY_BASE}/bookings", params=params, timeout=30)
         lote = resp.json().get("bookings", [])
         if not lote:
             break
@@ -576,7 +614,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     camps_diario_json = json.dumps(camps_diario,           ensure_ascii=False)
     bookings_json     = json.dumps(rz["todos_bookings"],   ensure_ascii=False)
     heatmap_json      = json.dumps(rz["heatmap"],          ensure_ascii=False)
-    criativos_json    = json.dumps(criativos,              ensure_ascii=False)
+    criativos_json    = json.dumps(criativos if isinstance(criativos, dict) else {"d7": criativos, "d14": criativos, "d30": criativos, "d90": criativos}, ensure_ascii=False)
     organico_lista    = (organico_fb or []) + (organico_ig or [])
     organico_json     = json.dumps(organico_lista,         ensure_ascii=False)
     org_tem_dados     = bool(organico_lista)
@@ -645,6 +683,29 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   ::-webkit-scrollbar {{ width:6px; height:6px; }}
   ::-webkit-scrollbar-track {{ background:var(--bg); }}
   ::-webkit-scrollbar-thumb {{ background:var(--border); border-radius:3px; }}
+  /* Delta indicators */
+  .delta-up {{ color:var(--green) !important; }}
+  .delta-dn {{ color:var(--red)   !important; }}
+  .kpi-delta[data-delta] {{ font-size:.72rem; margin-top:4px; }}
+  /* Heatmap tooltip */
+  #heatmap-container td[title] {{ cursor:default; }}
+  /* Anomalia badge */
+  .badge-anomalia {{ background:rgba(239,68,68,.18); color:#fca5a5; animation:pulse 2s infinite; }}
+  @keyframes pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:.6}} }}
+  /* Mobile */
+  @media(max-width:640px){{
+    main {{ padding-left:10px!important; padding-right:10px!important; }}
+    header .max-w-screen-xl {{ padding-left:12px; padding-right:12px; }}
+    .kpi-val {{ font-size:1.25rem!important; }}
+    .tab-btn {{ padding:6px 11px; font-size:.78rem; }}
+    .date-range-wrap {{ min-width:160px; }}
+    th,td {{ padding:6px 8px; font-size:.74rem; }}
+    .card {{ padding:14px; }}
+    canvas {{ max-height:220px; }}
+  }}
+  @media(max-width:480px){{
+    .flex.flex-wrap.items-center.justify-between {{ flex-direction:column; align-items:flex-start; }}
+  }}
 </style>
 </head>
 <body>
@@ -694,18 +755,18 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
 
   <div class="mb-2 mt-1" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Meta Ads</div>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5" id="vg-meta-kpis">
-    <div class="card"><div class="kpi-label">Gasto</div><div class="kpi-val" id="vg-gasto" style="color:var(--indigo)">{fmt_brl(d30["gasto"])}</div></div>
-    <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="vg-impr">{fmt_n(d30["impressoes"])}</div></div>
-    <div class="card"><div class="kpi-label">CTR</div><div class="kpi-val" id="vg-ctr" style="color:var(--cyan)">{fmt_pct(d30["ctr"])}</div></div>
-    <div class="card"><div class="kpi-label">CPC Médio</div><div class="kpi-val" id="vg-cpc">{fmt_brl(d30["cpc"])}</div></div>
+    <div class="card"><div class="kpi-label">Gasto</div><div class="kpi-val" id="vg-gasto" style="color:var(--indigo)">{fmt_brl(d30["gasto"])}</div><div class="kpi-delta" id="vg-gasto-delta"></div></div>
+    <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="vg-impr">{fmt_n(d30["impressoes"])}</div><div class="kpi-delta" id="vg-impr-delta"></div></div>
+    <div class="card"><div class="kpi-label">CTR</div><div class="kpi-val" id="vg-ctr" style="color:var(--cyan)">{fmt_pct(d30["ctr"])}</div><div class="kpi-delta" id="vg-ctr-delta"></div></div>
+    <div class="card"><div class="kpi-label">CPC Médio</div><div class="kpi-val" id="vg-cpc">{fmt_brl(d30["cpc"])}</div><div class="kpi-delta" id="vg-cpc-delta"></div></div>
   </div>
 
   <div class="mb-2" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Rezdy</div>
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-    <div class="card"><div class="kpi-label">Receita Confirmada</div><div class="kpi-val" id="vg-receita" style="color:var(--green)">{fmt_brl(rz["receita"])}</div></div>
+    <div class="card"><div class="kpi-label">Receita Confirmada</div><div class="kpi-val" id="vg-receita" style="color:var(--green)">{fmt_brl(rz["receita"])}</div><div class="kpi-delta" id="vg-receita-delta"></div></div>
     <div class="card"><div class="kpi-label">Confirmadas</div><div class="kpi-val" id="vg-conf">{rz["confirmadas"]}</div><div class="kpi-delta" id="vg-conf-sub">{rz["total"]} total ({fmt_pct(rz["taxa_conv"])} conv.)</div></div>
-    <div class="card"><div class="kpi-label">Ticket Médio</div><div class="kpi-val" id="vg-ticket">{fmt_brl(rz["ticket_medio"])}</div></div>
-    <div class="card"><div class="kpi-label">Abandonadas</div><div class="kpi-val" id="vg-aband" style="color:var(--red)">{rz["abandonadas"]}</div><div class="kpi-delta" id="vg-aband-sub">de {rz["total"]} reservas</div></div>
+    <div class="card"><div class="kpi-label">Ticket Médio</div><div class="kpi-val" id="vg-ticket">{fmt_brl(rz["ticket_medio"])}</div><div class="kpi-delta" id="vg-ticket-delta"></div></div>
+    <div class="card"><div class="kpi-label">CPA (Gasto÷Conf.)</div><div class="kpi-val" id="vg-cpa" style="color:var(--amber)">—</div><div class="kpi-delta" id="vg-cpa-delta"></div></div>
   </div>
 
   <!-- Charts row 1 -->
@@ -755,29 +816,28 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
 <!-- ═══════════════════════════ META ADS ══════════════════════════════════ -->
 <div id="tab-meta" class="tab-content pt-3" style="display:none">
 
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5" id="meta-kpis-cards">
-    <div class="card"><div class="kpi-label">Gasto</div><div class="kpi-val" id="mk-gasto" style="color:var(--indigo)">{fmt_brl(d30["gasto"])}</div></div>
-    <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="mk-impr">{fmt_n(d30["impressoes"])}</div></div>
-    <div class="card"><div class="kpi-label">Cliques</div><div class="kpi-val" id="mk-click">{fmt_n(d30["cliques"])}</div></div>
-    <div class="card"><div class="kpi-label">CTR</div><div class="kpi-val" id="mk-ctr" style="color:var(--cyan)">{fmt_pct(d30["ctr"])}</div></div>
-    <div class="card"><div class="kpi-label">CPC</div><div class="kpi-val" id="mk-cpc">{fmt_brl(d30["cpc"])}</div></div>
-    <div class="card"><div class="kpi-label">CPM</div><div class="kpi-val" id="mk-cpm">{fmt_brl(d30["cpm"])}</div></div>
-    <div class="card"><div class="kpi-label">Conv. Iniciadas</div><div class="kpi-val" id="mk-conv" style="color:var(--green)">{fmt_n(d30["conversas"])}</div></div>
-    <div class="card"><div class="kpi-label">Conexões Msg</div><div class="kpi-val" id="mk-conx" style="color:var(--sub)">{fmt_n(d30["conexoes"])}</div></div>
+  <div class="grid grid-cols-2 gap-3 mb-5" id="meta-kpis-cards">
+    <div class="card"><div class="kpi-label">Gasto</div><div class="kpi-val" id="mk-gasto" style="color:var(--indigo)">{fmt_brl(d30["gasto"])}</div><div class="kpi-delta" id="mk-gasto-delta"></div></div>
+    <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="mk-impr">{fmt_n(d30["impressoes"])}</div><div class="kpi-delta" id="mk-impr-delta"></div></div>
+    <div class="card"><div class="kpi-label">Cliques</div><div class="kpi-val" id="mk-click">{fmt_n(d30["cliques"])}</div><div class="kpi-delta" id="mk-click-delta"></div></div>
+    <div class="card"><div class="kpi-label">CTR</div><div class="kpi-val" id="mk-ctr" style="color:var(--cyan)">{fmt_pct(d30["ctr"])}</div><div class="kpi-delta" id="mk-ctr-delta"></div></div>
+    <div class="card"><div class="kpi-label">CPC</div><div class="kpi-val" id="mk-cpc">{fmt_brl(d30["cpc"])}</div><div class="kpi-delta" id="mk-cpc-delta"></div></div>
+    <div class="card"><div class="kpi-label">CPM</div><div class="kpi-val" id="mk-cpm">{fmt_brl(d30["cpm"])}</div><div class="kpi-delta" id="mk-cpm-delta"></div></div>
+    <div class="card"><div class="kpi-label">Conv. Iniciadas</div><div class="kpi-val" id="mk-conv" style="color:var(--green)">{fmt_n(d30["conversas"])}</div><div class="kpi-delta" id="mk-conv-delta"></div></div>
+    <div class="card"><div class="kpi-label">Conexões Msg</div><div class="kpi-val" id="mk-conx" style="color:var(--sub)">{fmt_n(d30["conexoes"])}</div><div class="kpi-delta" id="mk-conx-delta"></div></div>
   </div>
 
-  <div class="card mb-5">
-    <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Gasto & Cliques Diários</div>
-    <canvas id="chartMetaDiario2" height="180"></canvas>
-  </div>
-
-  <!-- Tabela campanhas -->
-  <div class="card">
-    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">Campanhas — últimos 30 dias</div>
-      <span class="badge badge-gray">dados fixos em 30d · calendário afeta KPIs e gráficos</span>
+  <!-- Gráfico diário + Campanhas lado a lado -->
+  <div class="grid grid-cols-2 gap-4 mb-5">
+    <div class="card">
+      <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Gasto & Cliques Diários</div>
+      <canvas id="chartMetaDiario2" height="260"></canvas>
     </div>
-    <div style="overflow-x:auto">
+    <div class="card">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div style="font-weight:600;font-size:.9rem" id="camps-title">Campanhas</div>
+      </div>
+      <div style="overflow-x:auto">
       <table>
         <thead>
           <tr>
@@ -795,13 +855,14 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
         </thead>
         <tbody id="camps-body"></tbody>
       </table>
+      </div>
     </div>
-  </div>
+  </div><!-- /grid gráfico+campanhas -->
 
   <!-- Criativos -->
   <div class="card mt-5">
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">🎨 Criativos — últimos 30 dias</div>
+      <div style="font-weight:600;font-size:.9rem" id="criativos-title">🎨 Criativos</div>
       <span class="badge badge-gray">agrupado por tipo · clique no grupo para minimizar</span>
     </div>
     <div id="criativos-content" style="overflow-x:auto">
@@ -828,14 +889,15 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
 <!-- ═══════════════════════════ REZDY ════════════════════════════════════ -->
 <div id="tab-rezdy" class="tab-content pt-3" style="display:none">
 
-  <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
-    <div class="card"><div class="kpi-label">Total Reservas</div><div class="kpi-val" id="rk-total">{rz["total"]}</div></div>
-    <div class="card"><div class="kpi-label">Confirmadas</div><div class="kpi-val" id="rk-conf" style="color:var(--green)">{rz["confirmadas"]}</div></div>
+  <div class="grid grid-cols-2 gap-3 mb-5">
+    <div class="card"><div class="kpi-label">Total Reservas</div><div class="kpi-val" id="rk-total">{rz["total"]}</div><div class="kpi-delta" id="rk-total-delta"></div></div>
+    <div class="card"><div class="kpi-label">Confirmadas</div><div class="kpi-val" id="rk-conf" style="color:var(--green)">{rz["confirmadas"]}</div><div class="kpi-delta" id="rk-conf-delta"></div></div>
     <div class="card"><div class="kpi-label">Voos Realizados</div><div class="kpi-val" id="rk-fulfilments" style="color:var(--cyan)">{rz["fulfilments"]}</div><div class="kpi-delta">pelo dia do voo</div></div>
-    <div class="card"><div class="kpi-label">Abandonadas</div><div class="kpi-val" id="rk-aband" style="color:var(--red)">{rz["abandonadas"]}</div></div>
-    <div class="card"><div class="kpi-label">Receita</div><div class="kpi-val" id="rk-receita" style="color:var(--green);font-size:1.2rem">{fmt_brl(rz["receita"])}</div></div>
-    <div class="card"><div class="kpi-label">Ticket Médio</div><div class="kpi-val" id="rk-ticket" style="font-size:1.3rem">{fmt_brl(rz["ticket_medio"])}</div></div>
-    <div class="card"><div class="kpi-label">Taxa Conversão</div><div class="kpi-val" id="rk-taxa" style="color:var(--cyan)">{fmt_pct(rz["taxa_conv"])}</div></div>
+    <div class="card"><div class="kpi-label">Abandonadas</div><div class="kpi-val" id="rk-aband" style="color:var(--red)">{rz["abandonadas"]}</div><div class="kpi-delta" id="rk-aband-delta"></div></div>
+    <div class="card"><div class="kpi-label">Receita</div><div class="kpi-val" id="rk-receita" style="color:var(--green);font-size:1.2rem">{fmt_brl(rz["receita"])}</div><div class="kpi-delta" id="rk-receita-delta"></div></div>
+    <div class="card"><div class="kpi-label">Ticket Médio</div><div class="kpi-val" id="rk-ticket" style="font-size:1.3rem">{fmt_brl(rz["ticket_medio"])}</div><div class="kpi-delta" id="rk-ticket-delta"></div></div>
+    <div class="card"><div class="kpi-label">Taxa Conversão</div><div class="kpi-val" id="rk-taxa" style="color:var(--cyan)">{fmt_pct(rz["taxa_conv"])}</div><div class="kpi-delta" id="rk-taxa-delta"></div></div>
+    <div class="card"><div class="kpi-label">Projeção Mensal</div><div class="kpi-val" id="rk-proj" style="color:var(--amber);font-size:1.2rem">—</div><div class="kpi-delta" id="rk-proj-sub">confirmações estimadas</div></div>
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
@@ -863,38 +925,38 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     </div>
   </div>
 
-  <!-- Bookings por Fonte -->
-  <div class="card mb-5">
-    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">Bookings: Online vs Interno vs Outros</div>
-      <div style="display:flex;gap:6px">
-        <button onclick="setFonteView('dia')"   id="fonte-btn-dia"    class="tab-btn active" style="padding:4px 12px;font-size:.75rem">Dia</button>
-        <button onclick="setFonteView('semana')" id="fonte-btn-semana" class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Semana</button>
-        <button onclick="setFonteView('mes')"    id="fonte-btn-mes"    class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Mês</button>
-      </div>
-    </div>
-    <canvas id="chartBookingsFonte" height="180"></canvas>
-  </div>
-
-  <!-- Booking vs Fulfilment -->
-  <div class="card mb-5">
-    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">Dia da Reserva vs Dia do Voo (Fulfilment)</div>
-      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-        <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
-          <span style="display:inline-block;width:12px;height:12px;background:rgba(99,102,241,.65);border-radius:2px"></span>Reservas feitas
-        </span>
-        <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
-          <span style="display:inline-block;width:22px;height:2px;background:#06b6d4;border-radius:2px"></span>Voos realizados
-        </span>
-        <div style="display:flex;gap:4px">
-          <button onclick="setFulfilView('dia')"    id="fulfil-btn-dia"    class="tab-btn active" style="padding:3px 10px;font-size:.72rem">Dia</button>
-          <button onclick="setFulfilView('semana')" id="fulfil-btn-semana" class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Semana</button>
-          <button onclick="setFulfilView('mes')"    id="fulfil-btn-mes"    class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Mês</button>
+  <!-- Bookings por Fonte + Booking vs Fulfilment lado a lado -->
+  <div class="grid grid-cols-2 gap-4 mb-5">
+    <div class="card">
+      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div style="font-weight:600;font-size:.9rem">Bookings: Online vs Interno vs Outros</div>
+        <div style="display:flex;gap:6px">
+          <button onclick="setFonteView('dia')"   id="fonte-btn-dia"    class="tab-btn active" style="padding:4px 12px;font-size:.75rem">Dia</button>
+          <button onclick="setFonteView('semana')" id="fonte-btn-semana" class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Semana</button>
+          <button onclick="setFonteView('mes')"    id="fonte-btn-mes"    class="tab-btn"         style="padding:4px 12px;font-size:.75rem">Mês</button>
         </div>
       </div>
+      <canvas id="chartBookingsFonte" height="200"></canvas>
     </div>
-    <canvas id="chartBookingVsFulfilment" height="190"></canvas>
+    <div class="card">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div style="font-weight:600;font-size:.9rem">Dia da Reserva vs Dia do Voo</div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
+            <span style="display:inline-block;width:12px;height:12px;background:rgba(99,102,241,.65);border-radius:2px"></span>Reservas feitas
+          </span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
+            <span style="display:inline-block;width:22px;height:2px;background:#06b6d4;border-radius:2px"></span>Voos realizados
+          </span>
+          <div style="display:flex;gap:4px">
+            <button onclick="setFulfilView('dia')"    id="fulfil-btn-dia"    class="tab-btn active" style="padding:3px 10px;font-size:.72rem">Dia</button>
+            <button onclick="setFulfilView('semana')" id="fulfil-btn-semana" class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Semana</button>
+            <button onclick="setFulfilView('mes')"    id="fulfil-btn-mes"    class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Mês</button>
+          </div>
+        </div>
+      </div>
+      <canvas id="chartBookingVsFulfilment" height="200"></canvas>
+    </div>
   </div>
 
   <!-- Heatmap: mês da reserva × mês do voo -->
@@ -998,16 +1060,35 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
       </div>
 
       <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detalhe por voo</div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px">
         <select id="cupom-detail-filter-fonte" onchange="renderCupons(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
           <option value="">Todas as fontes</option>
           <option value="ONLINE">Online</option>
           <option value="INTERNAL">Interno</option>
         </select>
-        <select id="cupom-detail-filter-cupom" onchange="renderCupons(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
-          <option value="">Todos os cupons</option>
-        </select>
+        <!-- Multi-select pills de cupons -->
+        <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:240px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:.75rem;color:#94a3b8;white-space:nowrap">Selecionar cupons:</span>
+            <div id="cupom-pills" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+            <button onclick="clearCupomSel()" id="cupom-clear-btn" style="display:none;background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:3px 10px;font-size:.73rem;cursor:pointer">✕ Limpar</button>
+          </div>
+          <div id="cupom-all-pills" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+        </div>
       </div>
+
+      <!-- Painel de comparação (aparece quando 2+ cupons selecionados) -->
+      <div id="cupom-comparar" style="display:none;margin-bottom:20px">
+        <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">⚖️ Comparação entre cupons selecionados</div>
+        <div style="overflow-x:auto;margin-bottom:14px">
+          <table id="cupom-comparar-table">
+            <thead><tr id="cupom-comparar-head"></tr></thead>
+            <tbody id="cupom-comparar-body"></tbody>
+          </table>
+        </div>
+        <canvas id="chartCupomComparacao" height="120"></canvas>
+      </div>
+
       <div style="overflow-x:auto">
         <table>
           <thead><tr>
@@ -1026,8 +1107,9 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <!-- ── Últimas Reservas ────────────────────────────────────────────────── -->
   <div class="card">
     <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">Últimas Reservas</div>
+      <div style="font-weight:600;font-size:.9rem">Últimas Reservas <span class="badge badge-gray" id="book-count"></span></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="search" id="book-search" placeholder="🔍 Buscar nº ou produto…" oninput="debounce(()=>renderBookings(currentFrom,currentTo),250)()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem;width:180px;outline:none">
         <select id="book-filter-status" onchange="renderBookings(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
           <option value="">Todos os status</option>
           <option value="CONFIRMED">Confirmados</option>
@@ -1035,6 +1117,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
           <option value="CANCELLED">Cancelados</option>
           <option value="ON_HOLD">On Hold</option>
         </select>
+        <button onclick="exportCSV()" title="Exportar CSV" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">⬇ CSV</button>
         <button id="book-section-toggle" onclick="toggleCard('book-section-body','book-section-toggle')" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">▲ Minimizar</button>
       </div>
     </div>
@@ -1174,7 +1257,7 @@ const REZDY_DATA   = {rezdy_json};
 const CAMPS_DIARIO = {camps_diario_json};
 const BOOKINGS     = {bookings_json};
 const HEATMAP      = {heatmap_json};
-const CRIATIVOS    = {criativos_json};
+const CRIATIVOS_PERIODOS = {criativos_json};
 const VOOS_CUPOM   = {voos_cupom_json};
 const ORGANICO     = {organico_json};
 const CUPOM_STATUS = {cupom_status_json};
@@ -1187,10 +1270,37 @@ let currentFrom = D30_FROM, currentTo = HOJE;
 const fBRL = v => 'R$ ' + Number(v).toLocaleString('pt-BR',{{minimumFractionDigits:2,maximumFractionDigits:2}});
 const fN   = v => Math.round(v).toLocaleString('pt-BR');
 const fPct = v => Number(v).toFixed(2) + '%';
+const fDate = d => d && d.length >= 10 ? d.slice(8)+'-'+d.slice(5,7)+'-'+d.slice(0,4) : (d||'—');
+const fAxis = d => d && d.length >= 10 ? d.slice(8)+'-'+d.slice(5,7) : d;
+
+// XSS-safe: escapa HTML para uso em innerHTML
+const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+// Debounce: evita re-render a cada tecla
+function debounce(fn, ms) {{
+  let t; return (...args) => {{ clearTimeout(t); t = setTimeout(()=>fn(...args), ms); }};
+}}
+
+// Delta KPI: retorna HTML de variação vs período anterior
+// goodDir: 1 = ↑ é bom (receita), -1 = ↓ é bom (CPC, CPA)
+function fDelta(cur, prev, goodDir=1) {{
+  if (!prev || prev === 0) return '';
+  const pct = (cur - prev) / prev * 100;
+  const up  = pct >= 0;
+  const good = goodDir === 1 ? up : !up;
+  const color = good ? 'var(--green)' : 'var(--red)';
+  const arrow = up ? '↑' : '↓';
+  return `<span style="color:${{color}}">${{arrow}} ${{Math.abs(pct).toFixed(1)}}% vs ant.</span>`;
+}}
 
 function setText(id, val) {{
   const el = document.getElementById(id);
   if (el) el.textContent = val;
+}}
+
+function setHtml(id, val) {{
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = val;
 }}
 
 // ─── Tab switching ────────────────────────────────────────────────────────────
@@ -1224,7 +1334,7 @@ function updateChart(id, labels, datasetsData) {{
 
 // ─── Chart builders ───────────────────────────────────────────────────────────
 function buildMetaDiario(canvasId, mDays) {{
-  const labels = mDays.map(d => d.data.slice(5));
+  const labels = mDays.map(d => fAxis(d.data));
   makeChart(canvasId, {{
     type: 'bar',
     data: {{
@@ -1283,7 +1393,7 @@ function setRezdyView(view) {{
 }}
 
 function buildRezdyDiario(canvasId, rDays) {{
-  const labelFmt = d => _rezdyView === 'mes' ? d.data : d.data.slice(5);
+  const labelFmt = d => _rezdyView === 'mes' ? d.data : fAxis(d.data);
   makeChart(canvasId, {{
     type:'bar',
     data:{{
@@ -1302,7 +1412,7 @@ function buildRezdyDiario(canvasId, rDays) {{
 }}
 
 function buildRezdyReceita(canvasId, rDays) {{
-  const labelFmt = d => _rezdyView === 'mes' ? d.data : d.data.slice(5);
+  const labelFmt = d => _rezdyView === 'mes' ? d.data : fAxis(d.data);
   makeChart(canvasId, {{
     type:'line',
     data:{{
@@ -1342,7 +1452,7 @@ function buildBookingVsFulfilment(canvasId, from, to) {{
     return date.slice(0,7);
   }};
 
-  const dispLabel = k => _fulfilView === 'mes' ? k : k.slice(5);
+  const dispLabel = k => _fulfilView === 'mes' ? k : fAxis(k);
 
   const bookMap = {{}};
   const fulfMap = {{}};
@@ -1416,7 +1526,7 @@ function buildBookingsFonte(from, to) {{
   }}
 
   const labels = Object.keys(agg).sort();
-  const dispLabel = l => _fonteView === 'mes' ? l.slice(0,7) : l.slice(5);
+  const dispLabel = l => _fonteView === 'mes' ? l.slice(0,7) : fAxis(l);
   makeChart('chartBookingsFonte', {{
     type: 'bar',
     data: {{
@@ -1438,7 +1548,8 @@ function buildBookingsFonte(from, to) {{
 // ─── Date range apply ─────────────────────────────────────────────────────────
 function applyDateRange(from, to) {{
   currentFrom = from; currentTo = to;
-  // ── Filter Meta ──
+
+  // ── Período atual ──
   const mDays  = META_DATA.diario.filter(d => d.data >= from && d.data <= to);
   const mGasto = mDays.reduce((s,d)=>s+d.gasto,0);
   const mImpr  = mDays.reduce((s,d)=>s+d.impressoes,0);
@@ -1449,7 +1560,6 @@ function applyDateRange(from, to) {{
   const mCpc   = mClick ? mGasto/mClick     : 0;
   const mCpm   = mImpr  ? mGasto/mImpr*1000 : 0;
 
-  // ── Filter Rezdy ──
   const rDays  = REZDY_DATA.por_dia.filter(d => d.data >= from && d.data <= to);
   const rConf  = rDays.reduce((s,d)=>s+d.confirmadas,0);
   const rAband = rDays.reduce((s,d)=>s+d.abandonadas,0);
@@ -1458,45 +1568,83 @@ function applyDateRange(from, to) {{
   const rRec   = rDays.reduce((s,d)=>s+d.receita,0);
   const rTick  = rConf ? rRec/rConf : 0;
   const rTaxa  = rTotal ? rConf/rTotal*100 : 0;
+  const mCpa   = rConf ? mGasto/rConf : 0;
+
+  // ── Período anterior (mesmo número de dias, imediatamente antes) ──
+  const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+  const prevTo   = new Date(from + 'T12:00:00'); prevTo.setDate(prevTo.getDate()-1);
+  const prevFrom = new Date(prevTo);             prevFrom.setDate(prevFrom.getDate()-days+1);
+  const pFrom = prevFrom.toISOString().slice(0,10);
+  const pTo   = prevTo.toISOString().slice(0,10);
+
+  const pmDays  = META_DATA.diario.filter(d => d.data >= pFrom && d.data <= pTo);
+  const pmGasto = pmDays.reduce((s,d)=>s+d.gasto,0);
+  const pmImpr  = pmDays.reduce((s,d)=>s+d.impressoes,0);
+  const pmClick = pmDays.reduce((s,d)=>s+d.cliques,0);
+  const pmConv  = pmDays.reduce((s,d)=>s+(d.conversas||0),0);
+  const pmCtr   = pmImpr  ? pmClick/pmImpr*100  : 0;
+  const pmCpc   = pmClick ? pmGasto/pmClick     : 0;
+  const pmCpm   = pmImpr  ? pmGasto/pmImpr*1000 : 0;
+
+  const prDays  = REZDY_DATA.por_dia.filter(d => d.data >= pFrom && d.data <= pTo);
+  const prConf  = prDays.reduce((s,d)=>s+d.confirmadas,0);
+  const prAband = prDays.reduce((s,d)=>s+d.abandonadas,0);
+  const prOutras= prDays.reduce((s,d)=>s+(d.outras||0),0);
+  const prTotal = prConf + prAband + prOutras;
+  const prRec   = prDays.reduce((s,d)=>s+d.receita,0);
+  const prTick  = prConf ? prRec/prConf : 0;
+  const prCpa   = prConf ? pmGasto/prConf : 0;
+
+  // ── Projeção mensal ──
+  const hoje = new Date(HOJE + 'T12:00:00');
+  const daysInMonth  = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).getDate();
+  const dayOfMonth   = hoje.getDate();
+  const dailyAvgConf = days > 0 ? rConf / days : 0;
+  const projMes      = Math.round(dailyAvgConf * daysInMonth);
+  const daysLeft     = daysInMonth - dayOfMonth;
+
+  // ── Anomalias simples ──
+  // CTR caiu > 30% vs anterior → avisa
+  const ctrAnomalia = pmCtr > 0 && mCtr < pmCtr * 0.7;
 
   // ── Update Visão Geral KPIs ──
-  setText('vg-gasto', fBRL(mGasto));
-  setText('vg-impr',  fN(mImpr));
-  setText('vg-ctr',   fPct(mCtr));
-  setText('vg-cpc',   fBRL(mCpc));
-  setText('vg-receita', fBRL(rRec));
-  setText('vg-conf',    rConf);
+  setText('vg-gasto',  fBRL(mGasto));  setHtml('vg-gasto-delta',  fDelta(mGasto, pmGasto, -1));
+  setText('vg-impr',   fN(mImpr));     setHtml('vg-impr-delta',   fDelta(mImpr,  pmImpr,   1));
+  setText('vg-ctr',    fPct(mCtr));    setHtml('vg-ctr-delta',    fDelta(mCtr,   pmCtr,    1));
+  setText('vg-cpc',    fBRL(mCpc));    setHtml('vg-cpc-delta',    fDelta(mCpc,   pmCpc,   -1));
+  setText('vg-receita',fBRL(rRec));    setHtml('vg-receita-delta',fDelta(rRec,   prRec,    1));
+  setText('vg-conf',   rConf);
   setText('vg-conf-sub', rTotal + ' total (' + fPct(rTaxa) + ' conv.)');
-  setText('vg-ticket',  fBRL(rTick));
-  setText('vg-aband',   rAband);
-  setText('vg-aband-sub', 'de ' + rTotal + ' reservas');
+  setText('vg-ticket', fBRL(rTick));   setHtml('vg-ticket-delta', fDelta(rTick,  prTick,   1));
+  setText('vg-cpa',    mCpa ? fBRL(mCpa) : '—'); setHtml('vg-cpa-delta', fDelta(mCpa, prCpa, -1));
 
   // ── Update Funil ──
-  setText('fn-impr',  fN(mImpr));
-  setText('fn-click', fN(mClick));
-  setText('fn-ctr-lbl', fPct(mCtr) + ' CTR');
-  setText('fn-total', rTotal);
-  setText('fn-conf',  rConf);
+  setText('fn-impr',    fN(mImpr));
+  setText('fn-click',   fN(mClick));
+  setText('fn-ctr-lbl', fPct(mCtr) + ' CTR' + (ctrAnomalia ? ' ⚠' : ''));
+  setText('fn-total',   rTotal);
+  setText('fn-conf',    rConf);
   setText('fn-taxa-lbl', fPct(rTaxa) + ' taxa');
 
   // ── Update Meta Ads KPIs ──
-  setText('mk-gasto', fBRL(mGasto));
-  setText('mk-impr',  fN(mImpr));
-  setText('mk-click', fN(mClick));
-  setText('mk-ctr',   fPct(mCtr));
-  setText('mk-cpc',   fBRL(mCpc));
-  setText('mk-cpm',   fBRL(mCpm));
-  setText('mk-conv',  fN(mConv));
-  setText('mk-conx',  fN(mConx));
+  setText('mk-gasto', fBRL(mGasto)); setHtml('mk-gasto-delta', fDelta(mGasto, pmGasto, -1));
+  setText('mk-impr',  fN(mImpr));   setHtml('mk-impr-delta',  fDelta(mImpr,  pmImpr,   1));
+  setText('mk-click', fN(mClick));  setHtml('mk-click-delta', fDelta(mClick, pmClick,  1));
+  setText('mk-ctr',   fPct(mCtr));  setHtml('mk-ctr-delta',   fDelta(mCtr,   pmCtr,    1) + (ctrAnomalia ? ' <span class="badge badge-anomalia">⚠ anomalia</span>' : ''));
+  setText('mk-cpc',   fBRL(mCpc));  setHtml('mk-cpc-delta',   fDelta(mCpc,   pmCpc,   -1));
+  setText('mk-cpm',   fBRL(mCpm));  setHtml('mk-cpm-delta',   fDelta(mCpm,   pmCpm,   -1));
+  setText('mk-conv',  fN(mConv));   setHtml('mk-conv-delta',  fDelta(mConv,  pmConv,   1));
+  setText('mk-conx',  fN(mConx));   setHtml('mk-conx-delta',  fDelta(mConx,  0));
 
   // ── Update Rezdy KPIs ──
-  setText('rk-total',  rTotal);
-  setText('rk-conf',   rConf);
-  setText('rk-aband',  rAband);
-  setText('rk-receita',fBRL(rRec));
-  setText('rk-ticket', fBRL(rTick));
-  setText('rk-taxa',   fPct(rTaxa));
-  // Voos realizados: confirmados cujo dia do voo (tour_date) cai no período selecionado
+  setText('rk-total',  rTotal);    setHtml('rk-total-delta',  fDelta(rTotal, prTotal,  1));
+  setText('rk-conf',   rConf);     setHtml('rk-conf-delta',   fDelta(rConf,  prConf,   1));
+  setText('rk-aband',  rAband);    setHtml('rk-aband-delta',  fDelta(rAband, prAband, -1));
+  setText('rk-receita',fBRL(rRec));setHtml('rk-receita-delta',fDelta(rRec,   prRec,    1));
+  setText('rk-ticket', fBRL(rTick));setHtml('rk-ticket-delta',fDelta(rTick,  prTick,   1));
+  setText('rk-taxa',   fPct(rTaxa));setHtml('rk-taxa-delta',  fDelta(rTaxa,  prTotal?prConf/prTotal*100:0, 1));
+  setText('rk-proj',   fN(projMes));
+  setText('rk-proj-sub', `média ${{dailyAvgConf.toFixed(1)}}/dia · mais ${{daysLeft}} dias restantes`);
   const rFulfilments = BOOKINGS.filter(b => b.s === 'CONFIRMED' && b.t && b.t >= from && b.t <= to && b.t <= HOJE).length;
   setText('rk-fulfilments', rFulfilments);
 
@@ -1519,9 +1667,11 @@ function applyDateRange(from, to) {{
   renderCupons(from, to);
   renderOrganico(from, to);
 
-  // ── Range label ──
-  const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+  // ── Range label + títulos dinâmicos ──
   setText('range-label', days + ' dias selecionados');
+  const fmtD = d => d.slice(8) + '-' + d.slice(5,7) + '-' + d.slice(0,4);
+  setText('camps-title', 'Campanhas — ' + fmtD(from) + ' a ' + fmtD(to));
+  renderCriativos(from, to);
 }}
 
 // ─── Render dinâmico de campanhas, produtos e bookings ───────────────────────
@@ -1547,8 +1697,9 @@ function renderCampanhas(from, to) {{
     const cpc  = c.c ? c.g/c.c     : 0;
     const cm   = c.m ? c.g/c.m     : 0;
     const ca   = c.a ? c.g/c.a     : 0;
+    const nomeEsc = escHtml(c.nome.slice(0,55));
     return `<tr>
-      <td><span style="font-size:.65rem;font-weight:700;padding:1px 6px;border-radius:4px;background:${{tc}}22;color:${{tc}};margin-right:6px">${{tipo}}</span><span style="font-weight:500">${{c.nome.slice(0,55)}}</span></td>
+      <td title="${{escHtml(c.nome)}}"><span style="font-size:.65rem;font-weight:700;padding:1px 6px;border-radius:4px;background:${{tc}}22;color:${{tc}};margin-right:6px">${{tipo}}</span><span style="font-weight:500">${{nomeEsc}}</span></td>
       <td style="text-align:right;color:#6366f1;font-weight:600">${{fBRL(c.g)}}</td>
       <td style="text-align:right">${{fN(c.i)}}</td>
       <td style="text-align:right">${{fN(c.c)}}</td>
@@ -1608,12 +1759,22 @@ function toggleCriativosTipo(tipo) {{
   if (label) label.textContent = hidden ? 'Expandir' : 'Minimizar';
 }}
 
-function renderCriativos() {{
+function renderCriativos(from, to) {{
   const TIPO_COLOR = {{MSG:'#22c55e', CONV:'#6366f1', TRAF:'#06b6d4'}};
   const TIPO_LABEL = {{MSG:'Mensagens', CONV:'Conversão / Carrinho', TRAF:'Tráfego'}};
 
+  // Seleciona o período mais próximo ao range selecionado
+  const days = from && to ? Math.round((new Date(to) - new Date(from)) / 86400000) + 1 : 30;
+  let periodoKey = 'd90';
+  let periodoLabel = 'últ. 90 dias';
+  if (days <= 7)  {{ periodoKey = 'd7';  periodoLabel = 'últ. 7 dias';  }}
+  else if (days <= 14) {{ periodoKey = 'd14'; periodoLabel = 'últ. 14 dias'; }}
+  else if (days <= 30) {{ periodoKey = 'd30'; periodoLabel = 'últ. 30 dias'; }}
+  const data = (CRIATIVOS_PERIODOS[periodoKey] || CRIATIVOS_PERIODOS.d30 || []);
+  setText('criativos-title', '🎨 Criativos — ' + periodoLabel);
+
   const grupos = {{MSG:[], CONV:[], TRAF:[]}};
-  for (const a of CRIATIVOS) {{
+  for (const a of data) {{
     const t = a.camp.includes('[MSG]') ? 'MSG' : a.camp.includes('[CONV]') ? 'CONV' : 'TRAF';
     grupos[t].push({{...a, tipo:t}});
   }}
@@ -1642,9 +1803,10 @@ function renderCriativos() {{
       const resultado  = isMsg ? a.msg : a.cart;
       const custo_res  = resultado ? fBRL(a.gasto / resultado) : '—';
       const res_label  = resultado ? `${{resultado}} ${{isMsg ? 'msg' : 'cart'}}` : '—';
+      const nomeEsc    = escHtml(a.nome);
       html += `<tr data-criativos="${{tipo}}" style="${{hidden ? 'display:none' : ''}}">
-        <td style="font-family:monospace;font-size:.7rem;color:#94a3b8;white-space:nowrap">${{a.id}}</td>
-        <td style="font-size:.82rem;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{a.nome}}">${{a.nome.slice(0,55)}}</td>
+        <td style="font-family:monospace;font-size:.7rem;color:#94a3b8;white-space:nowrap">${{escHtml(a.id)}}</td>
+        <td style="font-size:.82rem;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{nomeEsc}}">${{nomeEsc.slice(0,55)}}</td>
         <td style="text-align:right">${{fN(a.impr)}}</td>
         <td style="text-align:right;color:#06b6d4">${{a.ctr.toFixed(2)}}%</td>
         <td style="text-align:right">${{fBRL(a.cpc)}}</td>
@@ -1657,24 +1819,124 @@ function renderCriativos() {{
   if (el) el.innerHTML = html;
 }}
 
-// ─── Cupons dinâmicos ────────────────────────────────────────────────────────
-function renderCupons(from, to) {{
-  const fonteFilter  = (document.getElementById('cupom-detail-filter-fonte')  || {{}}).value || '';
-  const cupomFilter  = (document.getElementById('cupom-detail-filter-cupom')  || {{}}).value || '';
-  const allInPeriod  = VOOS_CUPOM.filter(b => b.data >= from && b.data <= to);
+// ─── Cupons — multi-select e comparação ──────────────────────────────────────
+const CUPOM_COLORS = ['#6366f1','#22c55e','#f59e0b','#ef4444','#06b6d4','#a855f7','#f97316','#14b8a6'];
+let selectedCupons = new Set();
 
-  // Populate cupom dropdown (only for current period)
-  const cupomSel = document.getElementById('cupom-detail-filter-cupom');
-  if (cupomSel) {{
-    const cupons = [...new Set(allInPeriod.map(b => b.coupon))].sort();
-    const prev = cupomSel.value;
-    cupomSel.innerHTML = '<option value="">Todos os cupons</option>' +
-      cupons.map(c => `<option value="${{c}}"${{c===prev?' selected':''}}>${{c}}</option>`).join('');
+function toggleCupom(c) {{
+  if (selectedCupons.has(c)) selectedCupons.delete(c);
+  else selectedCupons.add(c);
+  renderCupons(currentFrom, currentTo);
+}}
+
+function clearCupomSel() {{
+  selectedCupons.clear();
+  renderCupons(currentFrom, currentTo);
+}}
+
+function _buildPills(cupons) {{
+  const allPillsEl  = document.getElementById('cupom-all-pills');
+  const selPillsEl  = document.getElementById('cupom-pills');
+  const clearBtn    = document.getElementById('cupom-clear-btn');
+  if (!allPillsEl) return;
+
+  // Chips clicáveis de todos os cupons do período
+  allPillsEl.innerHTML = cupons.map((c, i) => {{
+    const sel  = selectedCupons.has(c);
+    const col  = CUPOM_COLORS[i % CUPOM_COLORS.length];
+    const bg   = sel ? col : 'transparent';
+    const border = sel ? col : 'var(--border)';
+    const color  = sel ? '#fff' : 'var(--sub)';
+    return `<button onclick="toggleCupom('${{c}}')"
+      style="background:${{bg}};border:1.5px solid ${{border}};color:${{color}};border-radius:99px;
+             padding:3px 12px;font-size:.73rem;font-weight:600;cursor:pointer;transition:all .15s"
+      title="${{sel ? 'Remover' : 'Adicionar'}} da comparação">${{c}}</button>`;
+  }}).join('');
+
+  // Pills selecionados no topo
+  if (selectedCupons.size > 0) {{
+    selPillsEl.innerHTML = [...selectedCupons].map((c,i) => {{
+      const col = CUPOM_COLORS[cupons.indexOf(c) % CUPOM_COLORS.length];
+      return `<span style="background:${{col}};color:#fff;border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700">${{c}}</span>`;
+    }}).join('');
+    if (clearBtn) clearBtn.style.display = 'inline-block';
+  }} else {{
+    selPillsEl.innerHTML = '';
+    if (clearBtn) clearBtn.style.display = 'none';
+  }}
+}}
+
+function _renderComparacao(cupons, allInPeriod, fonteFilter) {{
+  const panel = document.getElementById('cupom-comparar');
+  if (!panel) return;
+  if (cupons.length < 2) {{ panel.style.display = 'none'; return; }}
+  panel.style.display = 'block';
+
+  // Agrega métricas por cupom
+  const stats = {{}};
+  for (const c of cupons) stats[c] = {{usos:0,receita:0,pax:0,tickets:[]}};
+  for (const b of allInPeriod) {{
+    if (!cupons.includes(b.coupon)) continue;
+    if (fonteFilter && (b.fonte||'ONLINE').toUpperCase() !== fonteFilter) continue;
+    stats[b.coupon].usos    += 1;
+    stats[b.coupon].receita += b.valor;
+    stats[b.coupon].pax     += (b.pax || 1);
+    stats[b.coupon].tickets.push(b.valor);
   }}
 
+  // Tabela comparativa
+  const headEl = document.getElementById('cupom-comparar-head');
+  const bodyEl = document.getElementById('cupom-comparar-body');
+  if (headEl) {{
+    headEl.innerHTML = '<th>Métrica</th>' +
+      cupons.map((c,i) => `<th style="text-align:right;color:${{CUPOM_COLORS[i%CUPOM_COLORS.length]}}">${{c}}</th>`).join('');
+  }}
+  const rows = [
+    ['Voos Confirmados', c => fN(stats[c].usos)],
+    ['Receita Total',    c => fBRL(stats[c].receita)],
+    ['Ticket Médio',     c => stats[c].usos ? fBRL(stats[c].receita/stats[c].usos) : '—'],
+    ['PAX Total',        c => fN(stats[c].pax)],
+  ];
+  if (bodyEl) {{
+    bodyEl.innerHTML = rows.map(([label, fn]) => {{
+      const vals = cupons.map(c => ({{c, v: stats[c].usos ? stats[c].receita/stats[c].usos : 0, raw: fn(c)}}));
+      return `<tr><td style="color:#94a3b8;font-size:.8rem">${{label}}</td>` +
+        cupons.map((c,i) => `<td style="text-align:right;font-weight:600;color:${{CUPOM_COLORS[i%CUPOM_COLORS.length]}}">${{fn(c)}}</td>`).join('') +
+        '</tr>';
+    }}).join('');
+  }}
+
+  // Gráfico de barras
+  const datasets = [
+    {{ label:'Voos', data: cupons.map(c => stats[c].usos), backgroundColor: cupons.map((_,i) => CUPOM_COLORS[i%CUPOM_COLORS.length]+'cc') }},
+  ];
+  makeChart('chartCupomComparacao', {{
+    type: 'bar',
+    data: {{ labels: cupons, datasets }},
+    options: {{
+      responsive:true, maintainAspectRatio:true,
+      plugins:{{ legend:{{display:false}}, tooltip:{{callbacks:{{
+        afterLabel: (ctx) => 'Receita: ' + fBRL(stats[cupons[ctx.dataIndex]].receita)
+      }}}} }},
+      scales:{{ y:{{ beginAtZero:true, ticks:{{stepSize:1}} }} }},
+    }}
+  }});
+}}
+
+function renderCupons(from, to) {{
+  const fonteFilter  = (document.getElementById('cupom-detail-filter-fonte')  || {{}}).value || '';
+  const allInPeriod  = VOOS_CUPOM.filter(b => b.data >= from && b.data <= to);
+  const allCupons    = [...new Set(allInPeriod.map(b => b.coupon))].sort();
+
+  // Remove cupons que sumiram do período
+  for (const c of selectedCupons) {{ if (!allCupons.includes(c)) selectedCupons.delete(c); }}
+
+  _buildPills(allCupons);
+
+  const activeSel = [...selectedCupons];
   const filtered = allInPeriod.filter(b =>
     (!fonteFilter || (b.fonte||'ONLINE').toUpperCase() === fonteFilter) &&
-    (!cupomFilter || b.coupon === cupomFilter)
+    (activeSel.length === 0 || activeSel.includes(b.coupon))
   );
 
   // Agrega por cupom (confirmados)
@@ -1710,6 +1972,9 @@ function renderCupons(from, to) {{
   }}
   if (vazio)   vazio.style.display   = 'none';
   if (tabelas) tabelas.style.display = 'block';
+
+  // ── Painel de comparação (ativa com 2+ cupons selecionados) ──────────────
+  _renderComparacao([...selectedCupons], allInPeriod, fonteFilter);
 
   // ── Status por cupom (todos os status, período filtrado por data de criação) ──
   const statusBody = document.getElementById('cupom-status-body');
@@ -1753,39 +2018,77 @@ function renderCupons(from, to) {{
   if (detailBody) {{
     detailBody.innerHTML = filtered.map(b => `
       <tr>
-        <td style="font-family:monospace;font-size:.78rem">${{b.numero}}</td>
-        <td><span class="badge badge-blue">${{b.coupon}}</span></td>
-        <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.produto}}</td>
+        <td style="font-family:monospace;font-size:.78rem">${{escHtml(b.numero)}}</td>
+        <td><span class="badge badge-blue">${{escHtml(b.coupon)}}</span></td>
+        <td style="font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{escHtml(b.produto)}}">${{escHtml(b.produto)}}</td>
         <td style="text-align:right">${{b.pax || '—'}}</td>
         <td style="text-align:right;color:#22c55e;font-weight:600">${{fBRL(b.valor)}}</td>
-        <td style="color:#94a3b8">${{b.data}}</td>
-        <td style="color:#94a3b8">${{b.tour_dt || '—'}}</td>
-        <td style="font-size:.75rem;color:#94a3b8">${{b.fonte || 'ONLINE'}}</td>
-        <td style="color:#94a3b8;font-size:.8rem;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.nome}}</td>
+        <td style="color:#94a3b8">${{fDate(b.data)}}</td>
+        <td style="color:#94a3b8">${{b.tour_dt ? fDate(b.tour_dt) : '—'}}</td>
+        <td style="font-size:.75rem;color:#94a3b8">${{escHtml(b.fonte || 'ONLINE')}}</td>
+        <td style="color:#94a3b8;font-size:.8rem;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{escHtml(b.nome)}}">${{escHtml(b.nome)}}</td>
       </tr>`).join('');
   }}
 }}
+
+let _lastBookingsFiltered = [];
 
 function renderBookings(from, to) {{
   const tbody = document.getElementById('book-body');
   if (!tbody) return;
   const statusFilter = (document.getElementById('book-filter-status') || {{}}).value || '';
-  const rows = BOOKINGS.filter(b => b.d >= from && b.d <= to && (!statusFilter || b.s === statusFilter)).slice(0,200);
+  const searchVal    = ((document.getElementById('book-search') || {{}}).value || '').toLowerCase().trim();
+  const filtered = BOOKINGS.filter(b => {{
+    if (b.d < from || b.d > to) return false;
+    if (statusFilter && b.s !== statusFilter) return false;
+    if (searchVal) {{
+      const haystack = (b.n + ' ' + b.p + ' ' + (b.f||'')).toLowerCase();
+      if (!haystack.includes(searchVal)) return false;
+    }}
+    return true;
+  }});
+  _lastBookingsFiltered = filtered;
+  setText('book-count', filtered.length + ' resultados');
+  const rows = filtered.slice(0, 300);
   tbody.innerHTML = rows.map(b => {{
-    const sc  = b.s==='CONFIRMED'?'badge-green':b.s==='ABANDONED_CART'?'badge-red':'badge-amber';
+    const sc   = b.s==='CONFIRMED'?'badge-green':b.s==='ABANDONED_CART'?'badge-red':'badge-amber';
     const flag = countryFlag(b.cc);
+    const pEsc = escHtml(b.p);
     return `<tr>
-      <td style="font-family:monospace;font-size:.78rem">${{b.n}}</td>
+      <td style="font-family:monospace;font-size:.78rem">${{escHtml(b.n)}}</td>
       <td><span class="badge ${{sc}}">${{b.s.replace(/_/g,' ')}}</span></td>
-      <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${{b.p}}</td>
+      <td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{pEsc}}">${{pEsc}}</td>
       <td style="text-align:right;color:#94a3b8">${{b.px||1}}</td>
       <td style="text-align:right;font-weight:500">${{fBRL(b.v)}}</td>
-      <td style="color:#94a3b8">${{b.d}}</td>
-      <td style="color:#06b6d4">${{b.t||'—'}}</td>
-      <td style="font-size:.75rem;color:#94a3b8">${{b.f}}</td>
-      <td style="font-size:.8rem" title="${{b.cc}}">${{flag}} ${{b.cc}}</td>
+      <td style="color:#94a3b8">${{fDate(b.d)}}</td>
+      <td style="color:#06b6d4">${{b.t ? fDate(b.t) : '—'}}</td>
+      <td style="font-size:.75rem;color:#94a3b8">${{escHtml(b.f||'ONLINE')}}</td>
+      <td style="font-size:.8rem" title="${{escHtml(b.cc||'')}}">${{flag}} ${{escHtml(b.cc||'??')}}</td>
     </tr>`;
   }}).join('');
+  if (filtered.length > 300) {{
+    tbody.innerHTML += `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:12px">… e mais ${{filtered.length-300}} reservas. Use a busca ou filtre por status.</td></tr>`;
+  }}
+}}
+
+function exportCSV() {{
+  const rows = _lastBookingsFiltered.length ? _lastBookingsFiltered
+    : BOOKINGS.filter(b => b.d >= currentFrom && b.d <= currentTo);
+  const header = ['Nº Pedido','Status','Produto','PAX','Valor','Reservado em','Voo em','Fonte','País'];
+  const lines = [header.join(';')];
+  for (const b of rows) {{
+    lines.push([
+      b.n, b.s, '"'+String(b.p||'').replace(/"/g,'""')+'"',
+      b.px||1, String(b.v).replace('.',','),
+      fDate(b.d), b.t ? fDate(b.t) : '',
+      b.f||'ONLINE', b.cc||''
+    ].join(';'));
+  }}
+  const blob = new Blob(['﻿'+lines.join('\n')], {{type:'text/csv;charset=utf-8'}});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'bookings_'+currentFrom+'_'+currentTo+'.csv';
+  a.click(); URL.revokeObjectURL(url);
 }}
 
 function countryFlag(cc) {{
@@ -1898,7 +2201,8 @@ function renderHeatmap() {{
     tbl += `<tr><td style="padding:4px 10px;color:#94a3b8;white-space:nowrap;font-weight:500">${{fmtYM(cm)}}</td>`;
     for (const tm of allTour) {{
       const v = (HEATMAP[cm] || {{}})[tm] || 0;
-      tbl += `<td style="padding:6px 8px;text-align:center;border-radius:4px;${{heatColor(v)}};min-width:44px">${{v||''}}</td>`;
+      const tip = v ? `${{v}} reserva${{v>1?'s':''}} feitas em ${{fmtYM(cm)}} para voos em ${{fmtYM(tm)}}` : '';
+      tbl += `<td title="${{tip}}" style="padding:6px 8px;text-align:center;border-radius:4px;${{heatColor(v)}};min-width:44px;cursor:${{v?'default':''}}">${{v||''}}</td>`;
     }}
     tbl += '</tr>';
   }}
@@ -1972,12 +2276,12 @@ function renderOrganicoPosts() {{
     const platLbl   = isFb ? 'FB' : 'IG';
     const salvComp  = isFb ? fN(p.compartilhamentos||0) : fN(p.salvos||0);
     const totalEng  = isFb ? engFb(p) : engIg(p);
-    const msg       = (p.mensagem||'—').replace(/"/g,'&quot;');
+    const msgEsc    = escHtml(p.mensagem||'—');
     return `<tr>
       <td><span class="badge" style="background:${{platColor}}22;color:${{platColor}};font-weight:700">${{platLbl}}</span></td>
-      <td style="font-size:.75rem;color:#94a3b8;text-transform:capitalize">${{p.tipo}}</td>
-      <td style="color:#94a3b8;white-space:nowrap">${{p.criado_em}}</td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" title="${{msg}}">${{p.mensagem||'—'}}</td>
+      <td style="font-size:.75rem;color:#94a3b8;text-transform:capitalize">${{escHtml(p.tipo||'')}}</td>
+      <td style="color:#94a3b8;white-space:nowrap">${{fDate(p.criado_em)}}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" title="${{msgEsc}}">${{msgEsc}}</td>
       <td style="text-align:right;font-weight:600">${{fN(p.alcance||0)}}</td>
       <td style="text-align:right;color:#94a3b8">${{fN(p.impressoes||0)}}</td>
       <td style="text-align:right;color:#f59e0b">${{fN(p.curtidas||0)}}</td>
@@ -2091,7 +2395,7 @@ flatpickr("#date-range", {{
   mode: "range",
   dateFormat: "Y-m-d",
   altInput: true,
-  altFormat: "d/m/Y",
+  altFormat: "d-m-Y",
   defaultDate: [D30_FROM, HOJE],
   minDate: D90_FROM,
   maxDate: HOJE,
@@ -2106,7 +2410,6 @@ flatpickr("#date-range", {{
 
 // ─── Init com últimos 30d ─────────────────────────────────────────────────────
 applyDateRange(D30_FROM, HOJE);
-renderCriativos();
 renderHeatmap();
 </script>
 </body>
@@ -2128,7 +2431,7 @@ def _extrair_meta_do_html():
             return json.loads(m.group(1)) if m else None
         meta       = _extract("META_DATA")
         camps_d    = _extract("CAMPS_DIARIO")
-        criativos  = _extract("CRIATIVOS")
+        criativos  = _extract("CRIATIVOS_PERIODOS")
         return meta, camps_d, criativos
     except Exception as e:
         print(f"       AVISO: não foi possível extrair Meta do HTML: {e}")
@@ -2165,9 +2468,13 @@ def main():
         camps_diario = buscar_meta_diario_campanhas(90)
         print(f"       {len(camps_diario)} campanhas × 90d")
 
-        print("[ 5/8 ] Meta Ads — criativos 30d...")
-        criativos = buscar_meta_criativos("last_30d")
-        print(f"       {len(criativos)} criativos ativos")
+        print("[ 5/8 ] Meta Ads — criativos 4 períodos (7d/14d/30d/90d)...")
+        criativos_d7  = buscar_meta_criativos("last_7d")
+        criativos_d14 = buscar_meta_criativos("last_14d")
+        criativos_d30 = buscar_meta_criativos("last_30d")
+        criativos_d90 = buscar_meta_criativos("last_90d")
+        criativos = {"d7": criativos_d7, "d14": criativos_d14, "d30": criativos_d30, "d90": criativos_d90}
+        print(f"       {len(criativos_d30)} criativos ativos (30d)")
 
         meta = {"d30": d30, "campanhas": campanhas, "diario": diario}
 
