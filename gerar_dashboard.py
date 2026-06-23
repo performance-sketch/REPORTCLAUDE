@@ -900,6 +900,18 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     <div class="card"><div class="kpi-label">Projeção Mensal</div><div class="kpi-val" id="rk-proj" style="color:var(--amber);font-size:1.2rem">—</div><div class="kpi-delta" id="rk-proj-sub">confirmações estimadas</div></div>
   </div>
 
+  <!-- Receita Histórica — imune ao filtro de datas -->
+  <div class="card mb-5">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div>
+        <div style="font-weight:600;font-size:.9rem">Receita Confirmada — Histórico Mensal (todos os anos)</div>
+        <div style="font-size:.72rem;color:var(--sub);margin-top:2px">Baseado em todas as reservas · não muda com o filtro de datas</div>
+      </div>
+      <div style="display:flex;gap:6px" id="hist-year-toggles"></div>
+    </div>
+    <canvas id="chartReceitaHistorico" height="160"></canvas>
+  </div>
+
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
     <div class="card">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -1060,16 +1072,35 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
       </div>
 
       <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detalhe por voo</div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px">
         <select id="cupom-detail-filter-fonte" onchange="renderCupons(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
           <option value="">Todas as fontes</option>
           <option value="ONLINE">Online</option>
           <option value="INTERNAL">Interno</option>
         </select>
-        <select id="cupom-detail-filter-cupom" onchange="renderCupons(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
-          <option value="">Todos os cupons</option>
-        </select>
+        <!-- Multi-select pills de cupons -->
+        <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:240px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:.75rem;color:#94a3b8;white-space:nowrap">Selecionar cupons:</span>
+            <div id="cupom-pills" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+            <button onclick="clearCupomSel()" id="cupom-clear-btn" style="display:none;background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:3px 10px;font-size:.73rem;cursor:pointer">✕ Limpar</button>
+          </div>
+          <div id="cupom-all-pills" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+        </div>
       </div>
+
+      <!-- Painel de comparação (aparece quando 2+ cupons selecionados) -->
+      <div id="cupom-comparar" style="display:none;margin-bottom:20px">
+        <div style="font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">⚖️ Comparação entre cupons selecionados</div>
+        <div style="overflow-x:auto;margin-bottom:14px">
+          <table id="cupom-comparar-table">
+            <thead><tr id="cupom-comparar-head"></tr></thead>
+            <tbody id="cupom-comparar-body"></tbody>
+          </table>
+        </div>
+        <canvas id="chartCupomComparacao" height="120"></canvas>
+      </div>
+
       <div style="overflow-x:auto">
         <table>
           <thead><tr>
@@ -1800,24 +1831,124 @@ function renderCriativos(from, to) {{
   if (el) el.innerHTML = html;
 }}
 
-// ─── Cupons dinâmicos ────────────────────────────────────────────────────────
-function renderCupons(from, to) {{
-  const fonteFilter  = (document.getElementById('cupom-detail-filter-fonte')  || {{}}).value || '';
-  const cupomFilter  = (document.getElementById('cupom-detail-filter-cupom')  || {{}}).value || '';
-  const allInPeriod  = VOOS_CUPOM.filter(b => b.data >= from && b.data <= to);
+// ─── Cupons — multi-select e comparação ──────────────────────────────────────
+const CUPOM_COLORS = ['#6366f1','#22c55e','#f59e0b','#ef4444','#06b6d4','#a855f7','#f97316','#14b8a6'];
+let selectedCupons = new Set();
 
-  // Populate cupom dropdown (only for current period)
-  const cupomSel = document.getElementById('cupom-detail-filter-cupom');
-  if (cupomSel) {{
-    const cupons = [...new Set(allInPeriod.map(b => b.coupon))].sort();
-    const prev = cupomSel.value;
-    cupomSel.innerHTML = '<option value="">Todos os cupons</option>' +
-      cupons.map(c => `<option value="${{c}}"${{c===prev?' selected':''}}>${{c}}</option>`).join('');
+function toggleCupom(c) {{
+  if (selectedCupons.has(c)) selectedCupons.delete(c);
+  else selectedCupons.add(c);
+  renderCupons(currentFrom, currentTo);
+}}
+
+function clearCupomSel() {{
+  selectedCupons.clear();
+  renderCupons(currentFrom, currentTo);
+}}
+
+function _buildPills(cupons) {{
+  const allPillsEl  = document.getElementById('cupom-all-pills');
+  const selPillsEl  = document.getElementById('cupom-pills');
+  const clearBtn    = document.getElementById('cupom-clear-btn');
+  if (!allPillsEl) return;
+
+  // Chips clicáveis de todos os cupons do período
+  allPillsEl.innerHTML = cupons.map((c, i) => {{
+    const sel  = selectedCupons.has(c);
+    const col  = CUPOM_COLORS[i % CUPOM_COLORS.length];
+    const bg   = sel ? col : 'transparent';
+    const border = sel ? col : 'var(--border)';
+    const color  = sel ? '#fff' : 'var(--sub)';
+    return `<button onclick="toggleCupom('${{c}}')"
+      style="background:${{bg}};border:1.5px solid ${{border}};color:${{color}};border-radius:99px;
+             padding:3px 12px;font-size:.73rem;font-weight:600;cursor:pointer;transition:all .15s"
+      title="${{sel ? 'Remover' : 'Adicionar'}} da comparação">${{c}}</button>`;
+  }}).join('');
+
+  // Pills selecionados no topo
+  if (selectedCupons.size > 0) {{
+    selPillsEl.innerHTML = [...selectedCupons].map((c,i) => {{
+      const col = CUPOM_COLORS[cupons.indexOf(c) % CUPOM_COLORS.length];
+      return `<span style="background:${{col}};color:#fff;border-radius:99px;padding:2px 10px;font-size:.72rem;font-weight:700">${{c}}</span>`;
+    }}).join('');
+    if (clearBtn) clearBtn.style.display = 'inline-block';
+  }} else {{
+    selPillsEl.innerHTML = '';
+    if (clearBtn) clearBtn.style.display = 'none';
+  }}
+}}
+
+function _renderComparacao(cupons, allInPeriod, fonteFilter) {{
+  const panel = document.getElementById('cupom-comparar');
+  if (!panel) return;
+  if (cupons.length < 2) {{ panel.style.display = 'none'; return; }}
+  panel.style.display = 'block';
+
+  // Agrega métricas por cupom
+  const stats = {{}};
+  for (const c of cupons) stats[c] = {{usos:0,receita:0,pax:0,tickets:[]}};
+  for (const b of allInPeriod) {{
+    if (!cupons.includes(b.coupon)) continue;
+    if (fonteFilter && (b.fonte||'ONLINE').toUpperCase() !== fonteFilter) continue;
+    stats[b.coupon].usos    += 1;
+    stats[b.coupon].receita += b.valor;
+    stats[b.coupon].pax     += (b.pax || 1);
+    stats[b.coupon].tickets.push(b.valor);
   }}
 
+  // Tabela comparativa
+  const headEl = document.getElementById('cupom-comparar-head');
+  const bodyEl = document.getElementById('cupom-comparar-body');
+  if (headEl) {{
+    headEl.innerHTML = '<th>Métrica</th>' +
+      cupons.map((c,i) => `<th style="text-align:right;color:${{CUPOM_COLORS[i%CUPOM_COLORS.length]}}">${{c}}</th>`).join('');
+  }}
+  const rows = [
+    ['Voos Confirmados', c => fN(stats[c].usos)],
+    ['Receita Total',    c => fBRL(stats[c].receita)],
+    ['Ticket Médio',     c => stats[c].usos ? fBRL(stats[c].receita/stats[c].usos) : '—'],
+    ['PAX Total',        c => fN(stats[c].pax)],
+  ];
+  if (bodyEl) {{
+    bodyEl.innerHTML = rows.map(([label, fn]) => {{
+      const vals = cupons.map(c => ({{c, v: stats[c].usos ? stats[c].receita/stats[c].usos : 0, raw: fn(c)}}));
+      return `<tr><td style="color:#94a3b8;font-size:.8rem">${{label}}</td>` +
+        cupons.map((c,i) => `<td style="text-align:right;font-weight:600;color:${{CUPOM_COLORS[i%CUPOM_COLORS.length]}}">${{fn(c)}}</td>`).join('') +
+        '</tr>';
+    }}).join('');
+  }}
+
+  // Gráfico de barras
+  const datasets = [
+    {{ label:'Voos', data: cupons.map(c => stats[c].usos), backgroundColor: cupons.map((_,i) => CUPOM_COLORS[i%CUPOM_COLORS.length]+'cc') }},
+  ];
+  makeChart('chartCupomComparacao', {{
+    type: 'bar',
+    data: {{ labels: cupons, datasets }},
+    options: {{
+      responsive:true, maintainAspectRatio:true,
+      plugins:{{ legend:{{display:false}}, tooltip:{{callbacks:{{
+        afterLabel: (ctx) => 'Receita: ' + fBRL(stats[cupons[ctx.dataIndex]].receita)
+      }}}} }},
+      scales:{{ y:{{ beginAtZero:true, ticks:{{stepSize:1}} }} }},
+    }}
+  }});
+}}
+
+function renderCupons(from, to) {{
+  const fonteFilter  = (document.getElementById('cupom-detail-filter-fonte')  || {{}}).value || '';
+  const allInPeriod  = VOOS_CUPOM.filter(b => b.data >= from && b.data <= to);
+  const allCupons    = [...new Set(allInPeriod.map(b => b.coupon))].sort();
+
+  // Remove cupons que sumiram do período
+  for (const c of selectedCupons) {{ if (!allCupons.includes(c)) selectedCupons.delete(c); }}
+
+  _buildPills(allCupons);
+
+  const activeSel = [...selectedCupons];
   const filtered = allInPeriod.filter(b =>
     (!fonteFilter || (b.fonte||'ONLINE').toUpperCase() === fonteFilter) &&
-    (!cupomFilter || b.coupon === cupomFilter)
+    (activeSel.length === 0 || activeSel.includes(b.coupon))
   );
 
   // Agrega por cupom (confirmados)
@@ -1853,6 +1984,9 @@ function renderCupons(from, to) {{
   }}
   if (vazio)   vazio.style.display   = 'none';
   if (tabelas) tabelas.style.display = 'block';
+
+  // ── Painel de comparação (ativa com 2+ cupons selecionados) ──────────────
+  _renderComparacao([...selectedCupons], allInPeriod, fonteFilter);
 
   // ── Status por cupom (todos os status, período filtrado por data de criação) ──
   const statusBody = document.getElementById('cupom-status-body');
@@ -1941,7 +2075,7 @@ function renderBookings(from, to) {{
       <td style="color:#94a3b8">${{fDate(b.d)}}</td>
       <td style="color:#06b6d4">${{b.t ? fDate(b.t) : '—'}}</td>
       <td style="font-size:.75rem;color:#94a3b8">${{escHtml(b.f||'ONLINE')}}</td>
-      <td style="font-size:.8rem" title="${{escHtml(b.cc||'')}}">${{flag}} ${{escHtml(b.cc||'??')}}</td>
+      <td style="font-size:.8rem" title="${{escHtml(b.cc||'')}}">${{flag}} ${{countryName(b.cc)}}</td>
     </tr>`;
   }}).join('');
   if (filtered.length > 300) {{
@@ -1962,7 +2096,7 @@ function exportCSV() {{
       b.f||'ONLINE', b.cc||''
     ].join(';'));
   }}
-  const blob = new Blob(['﻿'+lines.join('\n')], {{type:'text/csv;charset=utf-8'}});
+  const blob = new Blob(['﻿'+lines.join('\\n')], {{type:'text/csv;charset=utf-8'}});
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url; a.download = 'bookings_'+currentFrom+'_'+currentTo+'.csv';
@@ -1973,6 +2107,56 @@ function countryFlag(cc) {{
   if (!cc || cc.length !== 2) return '';
   return cc.toUpperCase().replace(/./g, c =>
     String.fromCodePoint(0x1F1E6 - 65 + c.charCodeAt(0)));
+}}
+
+const COUNTRY_NAMES = {{
+  'AF':'Afeganistão','AL':'Albânia','DZ':'Argélia','AD':'Andorra','AO':'Angola',
+  'AG':'Antígua e Barbuda','AR':'Argentina','AM':'Armênia','AU':'Austrália',
+  'AT':'Áustria','AZ':'Azerbaijão','BS':'Bahamas','BH':'Bahrein','BD':'Bangladesh',
+  'BB':'Barbados','BY':'Bielorrússia','BE':'Bélgica','BZ':'Belize','BJ':'Benin',
+  'BT':'Butão','BO':'Bolívia','BA':'Bósnia e Herzegovina','BW':'Botsuana',
+  'BR':'Brasil','BN':'Brunei','BG':'Bulgária','BF':'Burkina Faso','BI':'Burundi',
+  'CV':'Cabo Verde','KH':'Camboja','CM':'Camarões','CA':'Canadá','CF':'Rep. Centro-Africana',
+  'TD':'Chade','CL':'Chile','CN':'China','CO':'Colômbia','KM':'Comores',
+  'CG':'Congo','CD':'Congo (RDC)','CR':'Costa Rica','HR':'Croácia','CU':'Cuba',
+  'CY':'Chipre','CZ':'República Tcheca','DK':'Dinamarca','DJ':'Djibuti',
+  'DM':'Dominica','DO':'República Dominicana','EC':'Equador','EG':'Egito',
+  'SV':'El Salvador','GQ':'Guiné Equatorial','ER':'Eritreia','EE':'Estônia',
+  'SZ':'Eswatini','ET':'Etiópia','FJ':'Fiji','FI':'Finlândia','FR':'França',
+  'GA':'Gabão','GM':'Gâmbia','GE':'Geórgia','DE':'Alemanha','GH':'Gana',
+  'GR':'Grécia','GD':'Granada','GT':'Guatemala','GN':'Guiné','GW':'Guiné-Bissau',
+  'GY':'Guiana','HT':'Haiti','HN':'Honduras','HU':'Hungria','IS':'Islândia',
+  'IN':'Índia','ID':'Indonésia','IR':'Irã','IQ':'Iraque','IE':'Irlanda',
+  'IL':'Israel','IT':'Itália','JM':'Jamaica','JP':'Japão','JO':'Jordânia',
+  'KZ':'Cazaquistão','KE':'Quênia','KI':'Kiribati','KP':'Coreia do Norte',
+  'KR':'Coreia do Sul','KW':'Kuwait','KG':'Quirguistão','LA':'Laos','LV':'Letônia',
+  'LB':'Líbano','LS':'Lesoto','LR':'Libéria','LY':'Líbia','LI':'Liechtenstein',
+  'LT':'Lituânia','LU':'Luxemburgo','MG':'Madagascar','MW':'Malawi','MY':'Malásia',
+  'MV':'Maldivas','ML':'Mali','MT':'Malta','MH':'Ilhas Marshall','MR':'Mauritânia',
+  'MU':'Maurício','MX':'México','FM':'Micronésia','MD':'Moldávia','MC':'Mônaco',
+  'MN':'Mongólia','ME':'Montenegro','MA':'Marrocos','MZ':'Moçambique','MM':'Myanmar',
+  'NA':'Namíbia','NR':'Nauru','NP':'Nepal','NL':'Países Baixos','NZ':'Nova Zelândia',
+  'NI':'Nicarágua','NE':'Níger','NG':'Nigéria','MK':'Macedônia do Norte','NO':'Noruega',
+  'OM':'Omã','PK':'Paquistão','PW':'Palau','PA':'Panamá','PG':'Papua Nova Guiné',
+  'PY':'Paraguai','PE':'Peru','PH':'Filipinas','PL':'Polônia','PT':'Portugal',
+  'QA':'Catar','RO':'Romênia','RU':'Rússia','RW':'Ruanda','KN':'São Cristóvão e Nevis',
+  'LC':'Santa Lúcia','VC':'São Vicente e Granadinas','WS':'Samoa','SM':'San Marino',
+  'ST':'São Tomé e Príncipe','SA':'Arábia Saudita','SN':'Senegal','RS':'Sérvia',
+  'SC':'Seicheles','SL':'Serra Leoa','SG':'Singapura','SK':'Eslováquia','SI':'Eslovênia',
+  'SB':'Ilhas Salomão','SO':'Somália','ZA':'África do Sul','SS':'Sudão do Sul',
+  'ES':'Espanha','LK':'Sri Lanka','SD':'Sudão','SR':'Suriname','SE':'Suécia',
+  'CH':'Suíça','SY':'Síria','TW':'Taiwan','TJ':'Tajiquistão','TZ':'Tanzânia',
+  'TH':'Tailândia','TL':'Timor-Leste','TG':'Togo','TO':'Tonga','TT':'Trinidad e Tobago',
+  'TN':'Tunísia','TR':'Turquia','TM':'Turcomenistão','TV':'Tuvalu','UG':'Uganda',
+  'UA':'Ucrânia','AE':'Emirados Árabes','GB':'Reino Unido','US':'Estados Unidos',
+  'UY':'Uruguai','UZ':'Uzbequistão','VU':'Vanuatu','VE':'Venezuela','VN':'Vietnã',
+  'YE':'Iêmen','ZM':'Zâmbia','ZW':'Zimbábue','HK':'Hong Kong','MO':'Macau',
+  'TW':'Taiwan','PS':'Palestina','XK':'Kosovo','??':'Desconhecido',
+}};
+
+function countryName(cc) {{
+  if (!cc) return 'Desconhecido';
+  return COUNTRY_NAMES[cc.toUpperCase()] || cc.toUpperCase();
 }}
 
 function renderPaises(from, to) {{
@@ -1994,7 +2178,7 @@ function renderPaises(from, to) {{
     const flag = countryFlag(cc);
     const pct  = totalBookings ? (v.ordens/totalBookings*100).toFixed(1) : '0.0';
     return `<tr>
-      <td><span style="margin-right:4px">${{flag}}</span>${{cc.toUpperCase()}}</td>
+      <td><span style="margin-right:6px">${{flag}}</span>${{countryName(cc)}}</td>
       <td style="text-align:right;font-weight:600">${{v.ordens}}</td>
       <td style="text-align:right;color:#94a3b8">${{v.pax}}</td>
       <td style="text-align:right">${{fBRL(v.receita)}}</td>
@@ -2030,7 +2214,7 @@ function renderPaises(from, to) {{
       const flag = countryFlag(c.cc);
       return `<tr>
         <td style="font-family:monospace;font-size:.78rem">${{c.n}}</td>
-        <td><span style="margin-right:4px">${{flag}}</span>${{c.cc||'??'}}</td>
+        <td><span style="margin-right:6px">${{flag}}</span>${{countryName(c.cc)}}</td>
         <td style="text-align:right">${{c.ordens}}</td>
         <td style="text-align:right;color:#94a3b8">${{c.pax}}</td>
         <td style="text-align:right;font-weight:600;color:#22c55e">${{fBRL(c.receita)}}</td>
@@ -2286,9 +2470,105 @@ flatpickr("#date-range", {{
   }}
 }});
 
+// ─── Receita histórica — Month by Month / Previous Year Comparison ───────────
+function buildReceitaHistorico() {{
+  const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  // Paleta e estilo por ano (ano mais recente = linha cheia, anteriores = tracejadas)
+  const YEAR_STYLE = [
+    {{ color: '#22c55e', width: 2.5, dash: [],     fill: '#22c55e12', radius: 4 }},
+    {{ color: '#6366f1', width: 2,   dash: [6,3],  fill: false,       radius: 3 }},
+    {{ color: '#f59e0b', width: 2,   dash: [4,4],  fill: false,       radius: 3 }},
+    {{ color: '#ef4444', width: 1.5, dash: [3,3],  fill: false,       radius: 3 }},
+  ];
+
+  // Agrupa receita confirmada pelo mês do VOO (tour date = fulfillment)
+  // Fallback para data de criação se não houver tour date
+  const byYearMo = {{}};
+  for (const b of BOOKINGS) {{
+    if (b.s !== 'CONFIRMED') continue;
+    const dateStr = b.t || b.d;
+    if (!dateStr) continue;
+    const yr = dateStr.slice(0, 4);
+    const mo = parseInt(dateStr.slice(5, 7), 10) - 1; // 0-based
+    if (!byYearMo[yr]) byYearMo[yr] = new Array(12).fill(null);
+    byYearMo[yr][mo] = (byYearMo[yr][mo] || 0) + (b.v || 0);
+  }}
+
+  // Ordena anos — mais recente primeiro para legenda, mas datasets do mais antigo ao mais novo
+  const yearsDesc = Object.keys(byYearMo).sort().reverse();
+  const yearsAsc  = [...yearsDesc].reverse();
+
+  const datasets = yearsAsc.map((yr, idx) => {{
+    const styleIdx = yearsAsc.length - 1 - idx; // mais recente = índice 0 no estilo
+    const s = YEAR_STYLE[Math.min(styleIdx, YEAR_STYLE.length - 1)];
+    return {{
+      label: yr,
+      data: byYearMo[yr].map(v => v === null ? null : Math.round(v * 100) / 100),
+      borderColor: s.color,
+      backgroundColor: s.fill || 'transparent',
+      pointBackgroundColor: s.color,
+      pointRadius: s.radius,
+      pointHoverRadius: s.radius + 2,
+      borderWidth: s.width,
+      borderDash: s.dash,
+      tension: 0.35,
+      fill: !!s.fill,
+      spanGaps: false,
+    }};
+  }});
+
+  makeChart('chartReceitaHistorico', {{
+    type: 'line',
+    data: {{ labels: MESES, datasets }},
+    options: {{
+      responsive: true,
+      maintainAspectRatio: true,
+      interaction: {{ mode: 'index', intersect: false }},
+      plugins: {{
+        legend: {{ display: false }},
+        tooltip: {{
+          callbacks: {{
+            label: ctx => ctx.parsed.y !== null
+              ? ' ' + ctx.dataset.label + ': ' + fBRL(ctx.parsed.y)
+              : ' ' + ctx.dataset.label + ': —',
+          }}
+        }}
+      }},
+      scales: {{
+        x: {{ grid: {{ color: 'rgba(51,65,85,.3)' }} }},
+        y: {{
+          beginAtZero: true,
+          grid: {{ color: 'rgba(51,65,85,.4)' }},
+          ticks: {{ callback: v => v >= 1000000
+            ? 'R$' + (v/1000000).toFixed(1) + 'M'
+            : 'R$' + (v/1000).toFixed(0) + 'k'
+          }},
+        }}
+      }}
+    }}
+  }});
+
+  // Legenda manual
+  const togglesEl = document.getElementById('hist-year-toggles');
+  if (togglesEl) {{
+    togglesEl.innerHTML = yearsDesc.map((yr, i) => {{
+      const s = YEAR_STYLE[Math.min(i, YEAR_STYLE.length - 1)];
+      const dashStyle = s.dash.length
+        ? `border-top: 2px dashed ${{s.color}}`
+        : `border-top: 2.5px solid ${{s.color}}`;
+      return `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;color:var(--sub)">
+        <span style="display:inline-block;width:22px;height:0;${{dashStyle}}"></span>
+        <span style="font-weight:${{i===0?'700':'400'}};color:${{i===0?s.color:'var(--sub)'}}">${{yr}}</span>
+      </span>`;
+    }}).join('');
+  }}
+}};
+
 // ─── Init com últimos 30d ─────────────────────────────────────────────────────
 applyDateRange(D30_FROM, HOJE);
 renderHeatmap();
+buildReceitaHistorico();
 </script>
 </body>
 </html>"""
