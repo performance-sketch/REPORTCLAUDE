@@ -1,0 +1,41 @@
+name: Update Rezdy Dashboard
+
+on:
+  schedule:
+    # Runs every day at 10:00 UTC (07:00 Brasília / BRT)
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+    # Also triggerable manually from GitHub Actions tab
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push the updated HTML
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch Rezdy data and update HTML
+        env:
+          REZDY_API_KEY: ${{ secrets.REZDY_API_KEY }}
+        run: python scripts/update_rezdy_data.py
+
+      - name: Commit and push if data changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet analise-rezdy-periodos.html || (
+            git add analise-rezdy-periodos.html &&
+            git commit -m "chore: auto-update Rezdy data [skip ci]" &&
+            git push
+          )
