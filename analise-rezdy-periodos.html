@@ -126,7 +126,7 @@ body {
   transform-origin: left;
   transform: scaleX(0);
 }
-.runway-fill--25 { background: var(--amber); width: 77.2%; }
+.runway-fill--25 { background: var(--amber); width: 77.6%; }
 .runway-fill--26 { background: var(--teal); width: 100%; }
 .runway-num {
   font-family: var(--mono);
@@ -355,18 +355,18 @@ canvas#wkChart { display: block; width: 100%; }
   <div class="hero-col">
     <span class="hero-year-tag hero-year-tag--25">2025</span>
     <span class="hero-revenue hero-revenue--25" id="rev25">R$ 0</span>
-    <span class="hero-label">Receita L&iacute;quida &middot; 29 dias</span>
+    <span class="hero-label">Receita L&iacute;quida &middot; 29 dias &middot; excl. R$33.149 free of charge</span>
   </div>
   <div class="hero-bridge">
     <div class="bridge-line"></div>
     <span class="hero-delta" id="revDelta">+R$ 0</span>
-    <span class="hero-delta-pct">+29,6%</span>
+    <span class="hero-delta-pct">+28,8%</span>
     <div class="bridge-line"></div>
   </div>
   <div class="hero-col hero-col--right">
     <span class="hero-year-tag hero-year-tag--26">2026</span>
     <span class="hero-revenue hero-revenue--26" id="rev26">R$ 0</span>
-    <span class="hero-label">Receita L&iacute;quida &middot; 29 dias</span>
+    <span class="hero-label">Receita L&iacute;quida &middot; 29 dias &middot; excl. R$47.422 free of charge</span>
   </div>
 </section>
 
@@ -374,12 +374,12 @@ canvas#wkChart { display: block; width: 100%; }
   <div class="runway-row">
     <span class="runway-yr runway-yr--25">2025</span>
     <div class="runway-track"><div class="runway-fill runway-fill--25"></div></div>
-    <span class="runway-num runway-num--25">R$&nbsp;609.747</span>
+    <span class="runway-num runway-num--25">R$&nbsp;576.598</span>
   </div>
   <div class="runway-row">
     <span class="runway-yr runway-yr--26">2026</span>
     <div class="runway-track"><div class="runway-fill runway-fill--26"></div></div>
-    <span class="runway-num runway-num--26">R$&nbsp;790.013</span>
+    <span class="runway-num runway-num--26">R$&nbsp;742.591</span>
   </div>
 </div>
 
@@ -406,20 +406,20 @@ canvas#wkChart { display: block; width: 100%; }
     <div class="kpi-card">
       <div class="kpi-name">Ticket M&eacute;dio</div>
       <div class="kpi-pair">
-        <span class="kpi-v kpi-v--25" style="font-size:17px">R$2.617</span>
+        <span class="kpi-v kpi-v--25" style="font-size:17px">R$2.475</span>
         <span class="kpi-arr">&rarr;</span>
-        <span class="kpi-v kpi-v--26" style="font-size:17px">R$2.801</span>
+        <span class="kpi-v kpi-v--26" style="font-size:17px">R$2.633</span>
       </div>
-      <div class="kpi-delta">+R$185 por ordem (+7,1%)</div>
+      <div class="kpi-delta">+R$158 por ordem (+6,4%)</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-name">Receita M&eacute;dia / Dia</div>
       <div class="kpi-pair">
-        <span class="kpi-v kpi-v--25" style="font-size:17px">R$21.025</span>
+        <span class="kpi-v kpi-v--25" style="font-size:17px">R$19.882</span>
         <span class="kpi-arr">&rarr;</span>
-        <span class="kpi-v kpi-v--26" style="font-size:17px">R$27.241</span>
+        <span class="kpi-v kpi-v--26" style="font-size:17px">R$25.606</span>
       </div>
-      <div class="kpi-delta">+R$6.216 por dia (+29,6%)</div>
+      <div class="kpi-delta">+R$5.724 por dia (+28,8%)</div>
     </div>
   </div>
 </section>
@@ -475,8 +475,8 @@ canvas#wkChart { display: block; width: 100%; }
           <td class="prod-name" style="color:var(--muted)">Total</td>
           <td class="c25" style="font-weight:700">233</td>
           <td class="c26" style="font-weight:700">282</td>
-          <td class="c25" style="font-weight:700">609.747</td>
-          <td class="c26" style="font-weight:700">790.013</td>
+          <td class="c25" style="font-weight:700">576.598</td>
+          <td class="c26" style="font-weight:700">742.591</td>
         </tr>
       </tbody>
     </table>
@@ -524,8 +524,8 @@ canvas#wkChart { display: block; width: 100%; }
     </div>
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.8">
       <span style="color:var(--text);font-family:var(--mono);font-size:12px">Receita Bruta</span><br>
-      <span class="fonte-t25">2025: R$654.508</span>&nbsp;&nbsp;&nbsp;
-      <span class="fonte-t26">2026: R$848.777</span>
+      <span class="fonte-t25">2025: R$621.359</span>&nbsp;&nbsp;&nbsp;
+      <span class="fonte-t26">2026: R$801.355</span>
     </div>
   </div>
 </section>
@@ -621,8 +621,8 @@ canvas#wkChart { display: block; width: 100%; }
     var ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
 
-    var d25 = [131209, 138109, 124058, 157819, 58550];
-    var d26 = [162181, 269989, 189489, 129386, 38967];
+    var d25 = [125495, 135687, 117340, 142972, 55104];
+    var d26 = [158471, 252877, 176678, 116986, 37579];
     var lbls = ['26 Mai', '02 Jun', '09 Jun', '16 Jun', '23 Jun*'];
 
     var pad = { t: 28, r: 16, b: 38, l: 52 };
@@ -709,9 +709,9 @@ canvas#wkChart { display: block; width: 100%; }
   }
 
   function init() {
-    animCount(document.getElementById('rev25'), 609747.65, 1200, fmtBRL);
-    animCount(document.getElementById('rev26'), 790013.61, 1400, fmtBRL);
-    animCount(document.getElementById('revDelta'), 180265.96, 1300, fmtDelta);
+    animCount(document.getElementById('rev25'), 576598.67, 1200, fmtBRL);
+    animCount(document.getElementById('rev26'), 742591.81, 1400, fmtBRL);
+    animCount(document.getElementById('revDelta'), 165993.14, 1300, fmtDelta);
     animFills();
     drawChart();
   }
