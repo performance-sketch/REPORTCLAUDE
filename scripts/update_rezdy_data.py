@@ -1,30 +1,32 @@
 #!/usr/bin/env python3
 """
-Fetch confirmed bookings from Rezdy API for May 26 - Jun 23 (2025 & 2026),
+Fetch confirmed Rezdy bookings for May 26 – Jun 23 (2025 & 2026),
 regenerate the ORDERS array in analise-rezdy-periodos.html with both
 booking date (d) and fulfillment date (df), and update the footer stamp.
 
-Required env var: REZDY_API_KEY
+Env:  REZDY_API_KEY  (set as GitHub Actions secret)
+Run:  python scripts/update_rezdy_data.py
 """
-import os, re, sys, json, requests
+import os, re, sys, time, requests
 from datetime import date
 
 API_KEY  = os.environ.get("REZDY_API_KEY", "")
 BASE_URL = "https://api.rezdy.com/v1"
-HTML_FILE = os.path.join(os.path.dirname(__file__), "..", "analise-rezdy-periodos.html")
+HTML_FILE = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "analise-rezdy-periodos.html")
+)
 
 if not API_KEY:
     sys.exit("ERROR: REZDY_API_KEY environment variable is not set.")
 
-# Fetch window per year — slightly wider than the display period
-# to catch orders created a day or two after Jun 23 with fulfillment in period
-FETCH_WINDOWS = [
-    {"year": 2025, "min": "2025-05-26", "max": "2025-06-27"},
-    {"year": 2026, "min": "2026-05-26", "max": "2026-06-27"},
-]
+# We need bookings created between 2025-05-26 and 2026-06-27.
+# Rezdy returns bookings newest-first; we paginate until dateCreated < STOP_DATE.
+STOP_DATE   = "2025-05-25"   # stop fetching when we reach orders older than this
+PERIOD_2025 = ("2025-05-26", "2025-06-27")
+PERIOD_2026 = ("2026-05-26", "2026-06-27")
 
 
-# ── CATEGORISATION ────────────────────────────────────────────────────────────
+# ── CATEGORISATION ─────────────────────────────────────────────────────────────
 
 def get_prod(name: str) -> str:
     n = (name or "").strip()
@@ -37,99 +39,98 @@ def get_prod(name: str) -> str:
     return "Other"
 
 def get_src(raw_source: str, prod: str) -> str:
+    """Map Rezdy API source (uppercase) to dashboard category."""
     if prod == "GYG":
         return "GYG"
-    s = (raw_source or "").lower()
-    if "online" in s:
+    s = (raw_source or "").upper()
+    if s == "ONLINE":
         return "Online"
-    return "Interno"   # Internal, Negotiated Rate, etc.
+    # INTERNAL, API, AGENT, NEGOTIATED_RATE, empty → Interno
+    return "Interno"
 
 
-# ── API FETCHING ───────────────────────────────────────────────────────────────
+# ── API FETCHING ────────────────────────────────────────────────────────────────
 
-def fetch_bookings(min_date: str, max_date: str) -> list:
-    """Paginate through /v1/bookings for the given date window."""
+def fetch_all_bookings() -> list:
+    """
+    Paginate /v1/bookings (newest first) until we're past STOP_DATE.
+    Returns raw booking dicts for the years we care about.
+    """
     all_b, offset, limit = [], 0, 100
+    print(f"Fetching bookings (stopping when dateCreated < {STOP_DATE})...")
+
     while True:
         resp = requests.get(
             f"{BASE_URL}/bookings",
-            params={
-                "apiKey":       API_KEY,
-                "limit":        limit,
-                "offset":       offset,
-                "minDateBooked": min_date,
-                "maxDateBooked": max_date,
-            },
+            params={"apiKey": API_KEY, "limit": limit, "offset": offset},
             timeout=30,
         )
         if not resp.ok:
             print(f"  API error {resp.status_code}: {resp.text[:300]}")
             resp.raise_for_status()
 
-        data  = resp.json()
-        batch = data.get("bookings", [])
-        all_b.extend(batch)
-        print(f"  offset={offset}  got={len(batch)}  total_so_far={len(all_b)}")
-        if len(batch) < limit:
+        batch = resp.json().get("bookings", [])
+        if not batch:
             break
+
+        all_b.extend(batch)
+        oldest = batch[-1].get("dateCreated", "")[:10]
+        print(f"  offset={offset:4d}  got={len(batch):3d}  total={len(all_b):4d}  oldest={oldest}")
+
+        if oldest < STOP_DATE or len(batch) < limit:
+            break
+
         offset += limit
+        time.sleep(0.1)   # stay well under 100 req/min rate limit
+
     return all_b
 
 
-# ── PARSING ────────────────────────────────────────────────────────────────────
+# ── PARSING ─────────────────────────────────────────────────────────────────────
 
-def parse_booking(b: dict, year: int) -> dict | None:
-    """Convert one Rezdy API booking dict into our dashboard order format."""
+def in_period(date_str: str, period: tuple) -> bool:
+    return period[0] <= date_str <= period[1]
+
+def parse_booking(b: dict) -> dict | None:
+    """Convert one Rezdy API booking to our dashboard order format."""
     if (b.get("status") or "").upper() != "CONFIRMED":
         return None
 
-    # Booking creation date
-    d_raw = b.get("dateCreated") or b.get("dateBooked") or ""
-    d = d_raw[:10]
+    d = (b.get("dateCreated") or "")[:10]
     if not d:
         return None
 
-    # Fulfillment / start date — try local time first, fall back to UTC
-    df_raw = (
-        b.get("startTimeLocal")
-        or b.get("startTime")
-        or b.get("startDateTime")
-        or ""
-    )
-    df = df_raw[:10]
-    if not df:
-        df = d   # fallback: use booking date
+    year = int(d[:4])
+    if year not in (2025, 2026):
+        return None
 
-    # Product from first line item
-    items     = b.get("items") or []
-    prod_name = items[0].get("productName", "") if items else ""
+    period = PERIOD_2025 if year == 2025 else PERIOD_2026
+    if not in_period(d, period):
+        return None
+
+    # Fulfillment date lives on the first line item, not at booking level
+    items  = b.get("items") or []
+    item0  = items[0] if items else {}
+    df_raw = (item0.get("startTimeLocal") or item0.get("startTime") or "")
+    df     = df_raw[:10] if df_raw else d   # fallback: booking date
+
+    prod_name = item0.get("productName", "")
     prod      = get_prod(prod_name)
+    src       = get_src(b.get("source", ""), prod)
 
-    # Source
-    src = get_src(b.get("source", ""), prod)
+    gross = float(b.get("totalAmount") or 0)
+    paid  = float(b.get("totalPaid")   or 0)
+    due   = float(b.get("totalDue")    or 0)
 
-    # Amounts
-    gross = float(b.get("totalAmount") or b.get("totalCost") or 0)
-
-    # Free-of-charge payments
-    free = 0.0
-    for p in (b.get("payments") or []):
-        ptype = ((p.get("type") or p.get("label") or "")).upper()
-        if "FREE" in ptype:
-            free += float(p.get("amount") or 0)
-
-    net   = round(gross - free, 2)
+    # Free of charge = amount that was comped (paid=0, due=0, gross>0)
+    free = round(max(0.0, gross - paid - due), 2)
+    net  = round(gross - free, 2)
     gross = round(gross, 2)
-    free  = round(free,  2)
 
-    # PAX — sum quantities across all items
-    pax = 0
-    for item in items:
-        for q in (item.get("quantities") or []):
-            pax += int(q.get("value") or 0)
+    # PAX from first item (totalQuantity is the sum Rezdy already computes)
+    pax = int(item0.get("totalQuantity") or 0)
     if pax == 0:
-        # fallback: try top-level field
-        pax = int(b.get("totalParticipants") or b.get("numParticipants") or 1)
+        pax = 1
 
     return {
         "y": year, "d": d, "df": df,
@@ -138,67 +139,61 @@ def parse_booking(b: dict, year: int) -> dict | None:
     }
 
 
-# ── MAIN ───────────────────────────────────────────────────────────────────────
+# ── MAIN ─────────────────────────────────────────────────────────────────────────
 
 def main():
-    all_orders = []
+    raw = fetch_all_bookings()
+    print(f"\nTotal raw bookings fetched: {len(raw)}")
 
-    for w in FETCH_WINDOWS:
-        print(f"\nFetching {w['year']}: {w['min']} → {w['max']}")
-        bookings = fetch_bookings(w["min"], w["max"])
-        print(f"Raw bookings returned: {len(bookings)}")
+    orders = []
+    for b in raw:
+        o = parse_booking(b)
+        if o:
+            orders.append(o)
 
-        parsed = 0
-        for b in bookings:
-            o = parse_booking(b, w["year"])
-            if o:
-                all_orders.append(o)
-                parsed += 1
-        print(f"Confirmed & parsed:    {parsed}")
+    if not orders and raw:
+        print("\nDEBUG: no orders parsed — printing first raw booking fields:")
+        first = raw[0]
+        for k, v in first.items():
+            if k != "items":
+                print(f"  {k}: {v!r}")
+        if first.get("items"):
+            print(f"  items[0]: {first['items'][0]!r}")
 
-        if bookings and parsed == 0:
-            # Print first raw booking so we can inspect field names
-            print("DEBUG first raw booking:")
-            print(json.dumps(bookings[0], indent=2, default=str)[:800])
+    by_yr = {2025: sum(1 for o in orders if o["y"] == 2025),
+             2026: sum(1 for o in orders if o["y"] == 2026)}
+    print(f"Parsed confirmed orders → 2025: {by_yr[2025]}  2026: {by_yr[2026]}")
 
-    print(f"\nTotal orders ready: {len(all_orders)}")
+    # Sort: most recent year and date first
+    orders.sort(key=lambda o: (o["y"], o["d"]), reverse=True)
 
-    # Sort: year desc, then date desc
-    all_orders.sort(key=lambda o: (o["y"], o["d"]), reverse=True)
-
-    # Build the JS array string
+    # Build JS array
     entries = [
-        (
-            f'{{"y":{o["y"]},"d":"{o["d"]}","df":"{o["df"]}",'
-            f'"net":{o["net"]},"free":{o["free"]},"gross":{o["gross"]},'
-            f'"pax":{o["pax"]},"prod":"{o["prod"]}","src":"{o["src"]}"}}'
-        )
-        for o in all_orders
+        (f'{{"y":{o["y"]},"d":"{o["d"]}","df":"{o["df"]}",'
+         f'"net":{o["net"]},"free":{o["free"]},"gross":{o["gross"]},'
+         f'"pax":{o["pax"]},"prod":"{o["prod"]}","src":"{o["src"]}"}}')
+        for o in orders
     ]
     js_arr = "var ORDERS = [" + ",".join(entries) + "];"
 
-    # ── Patch the HTML file ───────────────────────────────────────────────────
-    html_path = os.path.normpath(HTML_FILE)
-    with open(html_path, "r", encoding="utf-8") as f:
+    # Patch HTML
+    with open(HTML_FILE, "r", encoding="utf-8") as f:
         html = f.read()
 
     start = html.index("var ORDERS = [")
     end   = html.index("];", start) + 2
     html  = html[:start] + js_arr + html[end:]
 
-    # Update footer date stamp
     today = date.today().strftime("%d/%m/%Y")
-    html  = re.sub(
-        r"\d{2}/\d{2}/\d{4} &middot; Vertical Rio",
-        f"{today} &middot; Vertical Rio",
-        html,
-    )
+    html  = re.sub(r"\d{2}/\d{2}/\d{4} &middot; Vertical Rio",
+                   f"{today} &middot; Vertical Rio", html)
 
-    with open(html_path, "w", encoding="utf-8") as f:
+    with open(HTML_FILE, "w", encoding="utf-8") as f:
         f.write(html)
 
-    print(f"HTML updated: {html_path}")
-    print(f"Footer date:  {today}")
+    print(f"\nUpdated: {HTML_FILE}")
+    print(f"Footer:  {today}")
+    print(f"Orders:  {len(orders)}")
 
 
 if __name__ == "__main__":
