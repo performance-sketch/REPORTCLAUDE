@@ -11,9 +11,9 @@ from datetime import date
 
 API_KEY  = os.environ.get("REZDY_API_KEY", "")
 BASE_URL = "https://api.rezdy.com/v1"
-SCRIPT_DIR = os.path.dirname(__file__)
-HTML_FILE  = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "analise-rezdy-periodos.html"))
-INDEX_FILE = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "index.html"))
+SCRIPT_DIR  = os.path.dirname(__file__)
+HTML_FILE   = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "analise-rezdy-periodos.html"))
+JSON_FILE   = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "data", "periodos.json"))
 
 if not API_KEY:
     sys.exit("ERROR: REZDY_API_KEY environment variable is not set.")
@@ -173,32 +173,28 @@ def main():
          f'"pax":{o["pax"]},"prod":"{o["prod"]}","src":"{o["src"]}"}}')
         for o in orders
     ]
-    js_arr_periodos = "var ORDERS = [" + ",".join(entries) + "];"
-    js_arr_index    = "const ORDERS_PERIODOS = [" + ",".join(entries) + "];"
+    import json as _json
 
     today = date.today().strftime("%d/%m/%Y")
 
     # ── Patch analise-rezdy-periodos.html ──────────────────────────────────────
+    js_arr = "var ORDERS = [" + ",".join(entries) + "];"
     with open(HTML_FILE, "r", encoding="utf-8") as f:
         html = f.read()
     start = html.index("var ORDERS = [")
     end   = html.index("];", start) + 2
-    html  = html[:start] + js_arr_periodos + html[end:]
+    html  = html[:start] + js_arr + html[end:]
     html  = re.sub(r"\d{2}/\d{2}/\d{4} &middot; Vertical Rio",
                    f"{today} &middot; Vertical Rio", html)
     with open(HTML_FILE, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"\nUpdated analise-rezdy-periodos.html  ({len(orders)} orders)")
 
-    # ── Patch index.html ORDERS_PERIODOS ──────────────────────────────────────
-    with open(INDEX_FILE, "r", encoding="utf-8") as f:
-        idx = f.read()
-    start2 = idx.index("const ORDERS_PERIODOS = [")
-    end2   = idx.index("];", start2) + 2
-    idx    = idx[:start2] + js_arr_index + idx[end2:]
-    with open(INDEX_FILE, "w", encoding="utf-8") as f:
-        f.write(idx)
-    print(f"Updated index.html ORDERS_PERIODOS  ({len(orders)} orders)")
+    # ── Write data/periodos.json (fetched by index.html at runtime) ────────────
+    os.makedirs(os.path.dirname(JSON_FILE), exist_ok=True)
+    with open(JSON_FILE, "w", encoding="utf-8") as f:
+        _json.dump(orders, f, ensure_ascii=False, separators=(",", ":"))
+    print(f"Updated data/periodos.json            ({len(orders)} orders)")
     print(f"Footer: {today}")
 
 
