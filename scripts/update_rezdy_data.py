@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Fetch confirmed Rezdy bookings for May 26 – Jun 23 (2025 & 2026),
-regenerate the ORDERS array in analise-rezdy-periodos.html with both
-booking date (d) and fulfillment date (df), and update the footer stamp.
+Fetch confirmed Rezdy bookings for May 26 – Jun 27 (2025 & 2026),
+regenerate ORDERS in analise-rezdy-periodos.html and ORDERS_PERIODOS in index.html.
 
 Env:  REZDY_API_KEY  (set as GitHub Actions secret)
 Run:  python scripts/update_rezdy_data.py
@@ -12,9 +11,9 @@ from datetime import date
 
 API_KEY  = os.environ.get("REZDY_API_KEY", "")
 BASE_URL = "https://api.rezdy.com/v1"
-HTML_FILE = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "analise-rezdy-periodos.html")
-)
+SCRIPT_DIR = os.path.dirname(__file__)
+HTML_FILE  = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "analise-rezdy-periodos.html"))
+INDEX_FILE = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "index.html"))
 
 if not API_KEY:
     sys.exit("ERROR: REZDY_API_KEY environment variable is not set.")
@@ -174,26 +173,33 @@ def main():
          f'"pax":{o["pax"]},"prod":"{o["prod"]}","src":"{o["src"]}"}}')
         for o in orders
     ]
-    js_arr = "var ORDERS = [" + ",".join(entries) + "];"
-
-    # Patch HTML
-    with open(HTML_FILE, "r", encoding="utf-8") as f:
-        html = f.read()
-
-    start = html.index("var ORDERS = [")
-    end   = html.index("];", start) + 2
-    html  = html[:start] + js_arr + html[end:]
+    js_arr_periodos = "var ORDERS = [" + ",".join(entries) + "];"
+    js_arr_index    = "const ORDERS_PERIODOS = [" + ",".join(entries) + "];"
 
     today = date.today().strftime("%d/%m/%Y")
+
+    # ── Patch analise-rezdy-periodos.html ──────────────────────────────────────
+    with open(HTML_FILE, "r", encoding="utf-8") as f:
+        html = f.read()
+    start = html.index("var ORDERS = [")
+    end   = html.index("];", start) + 2
+    html  = html[:start] + js_arr_periodos + html[end:]
     html  = re.sub(r"\d{2}/\d{2}/\d{4} &middot; Vertical Rio",
                    f"{today} &middot; Vertical Rio", html)
-
     with open(HTML_FILE, "w", encoding="utf-8") as f:
         f.write(html)
+    print(f"\nUpdated analise-rezdy-periodos.html  ({len(orders)} orders)")
 
-    print(f"\nUpdated: {HTML_FILE}")
-    print(f"Footer:  {today}")
-    print(f"Orders:  {len(orders)}")
+    # ── Patch index.html ORDERS_PERIODOS ──────────────────────────────────────
+    with open(INDEX_FILE, "r", encoding="utf-8") as f:
+        idx = f.read()
+    start2 = idx.index("const ORDERS_PERIODOS = [")
+    end2   = idx.index("];", start2) + 2
+    idx    = idx[:start2] + js_arr_index + idx[end2:]
+    with open(INDEX_FILE, "w", encoding="utf-8") as f:
+        f.write(idx)
+    print(f"Updated index.html ORDERS_PERIODOS  ({len(orders)} orders)")
+    print(f"Footer: {today}")
 
 
 if __name__ == "__main__":
