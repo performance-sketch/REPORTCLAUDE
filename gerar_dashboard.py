@@ -36,11 +36,13 @@ _FB_TOKEN_FALLBACK = (
     "14s0ZCmAP0iLTZBAw5OShUTb84yf4AgQCz201"
 )
 META_TOKEN   = os.environ.get("META_TOKEN",   _FB_TOKEN_FALLBACK)
-META_ACCOUNT = os.environ.get("META_ACCOUNT", "act_2613909812239242")
-META_BASE    = "https://graph.facebook.com/v19.0"
-REZDY_KEY    = os.environ.get("REZDY_KEY",    "dc7f8d97256e484b8763a983ded2ba22")
-REZDY_BASE   = "https://api.rezdy.com/v1"
-ARQUIVO_HTML = "index.html"
+META_ACCOUNT    = os.environ.get("META_ACCOUNT",    "act_2613909812239242")
+META_BASE       = "https://graph.facebook.com/v19.0"
+META_APP_SECRET = os.environ.get("META_APP_SECRET", "548119a2b92726e1312a52c2eaf284bb")
+REZDY_KEY       = os.environ.get("REZDY_KEY",       "dc7f8d97256e484b8763a983ded2ba22")
+REZDY_BASE      = "https://api.rezdy.com/v1"
+ARQUIVO_HTML    = "index.html"
+IG_ACCOUNT_ID   = "17841404363695690"
 
 # ─── HTTP com retry exponencial ───────────────────────────────────────────────
 def _req(url, params=None, timeout=20, retries=3):
@@ -187,6 +189,50 @@ def buscar_meta_criativos(preset="last_30d"):
             "cart":  acoes["adicao_carrinho"],
         })
     resultado.sort(key=lambda x: x["gasto"], reverse=True)
+    return resultado
+
+
+def buscar_instagram_dados(ig_id=None, page_token=None, dias=90):
+    """Busca perfil + posts do Instagram Business Account via Graph API."""
+    ig_id  = ig_id or IG_ACCOUNT_ID
+    token  = page_token or META_TOKEN
+    resultado = {"perfil": {}, "media": []}
+
+    def _ig_get(path, extra_params=None):
+        params = {"access_token": token, **(extra_params or {})}
+        try:
+            r = requests.get(f"{META_BASE}/{path}", params=params, timeout=20)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return None
+
+    # ── Perfil ────────────────────────────────────────────────────────────────
+    r = _ig_get(ig_id, {"fields": "id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,website"})
+    if isinstance(r, dict):
+        resultado["perfil"] = r
+    else:
+        print(f"       AVISO Instagram: sem permissão instagram_basic — gere um token com essa permissão")
+        return resultado
+
+    # ── Mídia (posts recentes) ─────────────────────────────────────────────────
+    corte = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
+    posts = []
+    r = _ig_get(f"{ig_id}/media", {
+        "fields": "id,media_type,media_url,thumbnail_url,timestamp,caption,like_count,comments_count,permalink",
+        "limit": 50,
+    })
+    while isinstance(r, dict):
+        lote = r.get("data", [])
+        posts.extend(lote)
+        after = (r.get("paging") or {}).get("cursors", {}).get("after")
+        if not after or not lote or (lote[-1].get("timestamp") or "")[:10] < corte:
+            break
+        r = _ig_get(f"{ig_id}/media", {
+            "fields": "id,media_type,media_url,thumbnail_url,timestamp,caption,like_count,comments_count,permalink",
+            "limit": 50, "after": after,
+        })
+    resultado["media"] = posts
     return resultado
 
 
@@ -632,7 +678,7 @@ def processar_rezdy(reservas, dias=None):
 
 
 # ─── HTML ─────────────────────────────────────────────────────────────────────
-def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organico_fb=None, organico_ig=None, cupom_meta=None):
+def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organico_fb=None, organico_ig=None, cupom_meta=None, ig_dados=None):
     d30 = meta["d30"]
     rz  = rezdy_dados
 
@@ -696,6 +742,10 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     </div>"""
 
     _cupom_cards_html = "\n".join(_cupom_card_html(g) for g in _grupos_cupom)
+
+    # ── Instagram ─────────────────────────────────────────────────────────────
+    _ig = ig_dados or {}
+    ig_json = json.dumps(_ig, ensure_ascii=False)
 
 
     html = f"""<!DOCTYPE html>
@@ -799,6 +849,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     <div class="flex gap-2 flex-wrap">
       <button class="tab-btn active" onclick="switchTab('visao',this)">Visão Geral</button>
       <button class="tab-btn" onclick="switchTab('meta',this)">Meta Ads</button>
+      <button class="tab-btn" onclick="switchTab('instagram',this)">Instagram</button>
       <button class="tab-btn" onclick="switchTab('rezdy',this)">Rezdy Bookings</button>
       <button class="tab-btn" onclick="switchTab('organico',this)">Meta Orgânico</button>
     </div>
@@ -955,6 +1006,45 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   </div>
 
 </div><!-- /tab-meta -->
+
+
+<!-- ══════════════════════════ INSTAGRAM ══════════════════════════════════ -->
+<div id="tab-instagram" class="tab-content pt-3" style="display:none">
+
+  <!-- Perfil -->
+  <div class="card mb-4" id="ig-perfil-card">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div id="ig-avatar" style="width:60px;height:60px;border-radius:50%;background:var(--surface2);overflow:hidden;flex-shrink:0">
+        <img id="ig-avatar-img" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:1rem" id="ig-username">—</div>
+        <div style="font-size:.78rem;color:var(--sub)" id="ig-bio"></div>
+      </div>
+      <div style="display:flex;gap:24px;margin-left:auto;flex-wrap:wrap">
+        <div style="text-align:center"><div class="kpi-val" style="font-size:1.3rem" id="ig-followers">—</div><div style="font-size:.7rem;color:var(--sub)">Seguidores</div></div>
+        <div style="text-align:center"><div class="kpi-val" style="font-size:1.3rem" id="ig-following">—</div><div style="font-size:.7rem;color:var(--sub)">Seguindo</div></div>
+        <div style="text-align:center"><div class="kpi-val" style="font-size:1.3rem" id="ig-media-count">—</div><div style="font-size:.7rem;color:var(--sub)">Posts</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPIs 30d -->
+  <div class="mb-2" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Posts — últimos 30d</div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+    <div class="card"><div class="kpi-label">Posts</div><div class="kpi-val" id="ig-posts-30">—</div></div>
+    <div class="card"><div class="kpi-label">Curtidas</div><div class="kpi-val" style="color:var(--red)" id="ig-likes-30">—</div></div>
+    <div class="card"><div class="kpi-label">Comentários</div><div class="kpi-val" style="color:var(--cyan)" id="ig-comments-30">—</div></div>
+    <div class="card"><div class="kpi-label">Eng. Médio/Post</div><div class="kpi-val" style="color:var(--green)" id="ig-eng-30">—</div></div>
+  </div>
+
+  <!-- Feed recente -->
+  <div class="card">
+    <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Feed Recente</div>
+    <div id="ig-feed" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px"></div>
+  </div>
+
+</div><!-- /tab-instagram -->
 
 
 <!-- ═══════════════════════════ REZDY ════════════════════════════════════ -->
@@ -1337,6 +1427,7 @@ const CAMPS_DIARIO = {camps_diario_json};
 const BOOKINGS     = {bookings_json};
 const HEATMAP      = {heatmap_json};
 const CRIATIVOS_PERIODOS = {criativos_json};
+const IG_DATA      = {ig_json};
 const VOOS_CUPOM   = {voos_cupom_json};
 const ORGANICO     = {organico_json};
 const CUPOM_STATUS = {cupom_status_json};
@@ -1383,11 +1474,13 @@ function setHtml(id, val) {{
 }}
 
 // ─── Tab switching ────────────────────────────────────────────────────────────
+let _igInited = false;
 function switchTab(tab, btn) {{
   document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + tab).style.display = 'block';
   if (btn) btn.classList.add('active');
+  if (tab === 'instagram' && !_igInited) {{ initInstagram(); _igInited = true; }}
 }}
 
 // ─── Chart registry ───────────────────────────────────────────────────────────
@@ -2659,6 +2752,65 @@ function buildReceitaHistorico() {{
 applyDateRange(D30_FROM, HOJE);
 renderHeatmap();
 buildReceitaHistorico();
+
+// ─── Instagram init ───────────────────────────────────────────────────────────
+function _fN2(v) {{
+  if (v >= 1000000) return (v/1000000).toFixed(1)+'M';
+  if (v >= 1000)    return (v/1000).toFixed(1)+'k';
+  return String(v);
+}}
+
+function initInstagram() {{
+  const ig = IG_DATA;
+  if (!ig || !ig.perfil) return;
+  const p = ig.perfil;
+
+  // Perfil
+  document.getElementById('ig-username').textContent = '@' + (p.username || p.name || '—');
+  document.getElementById('ig-bio').textContent = p.biography || '';
+  document.getElementById('ig-followers').textContent   = _fN2(p.followers_count || 0);
+  document.getElementById('ig-following').textContent   = _fN2(p.follows_count   || 0);
+  document.getElementById('ig-media-count').textContent = _fN2(p.media_count     || 0);
+  if (p.profile_picture_url) {{
+    const img = document.getElementById('ig-avatar-img');
+    img.src = p.profile_picture_url;
+    img.style.display = 'block';
+  }}
+
+  // KPIs 30d
+  const media = ig.media || [];
+  const corte = new Date(); corte.setDate(corte.getDate()-30);
+  const recentes = media.filter(m => new Date(m.timestamp) >= corte);
+  const likes    = recentes.reduce((s,m) => s+(m.like_count||0), 0);
+  const comms    = recentes.reduce((s,m) => s+(m.comments_count||0), 0);
+  const eng      = recentes.length ? Math.round((likes+comms)/recentes.length) : 0;
+  document.getElementById('ig-posts-30').textContent    = recentes.length;
+  document.getElementById('ig-likes-30').textContent    = _fN2(likes);
+  document.getElementById('ig-comments-30').textContent = _fN2(comms);
+  document.getElementById('ig-eng-30').textContent      = _fN2(eng);
+
+  // Feed
+  const feed = document.getElementById('ig-feed');
+  if (!feed) return;
+  feed.innerHTML = '';
+  const sorted = [...media].sort((a,b) => new Date(b.timestamp)-new Date(a.timestamp)).slice(0,18);
+  sorted.forEach(m => {{
+    const isVid = m.media_type === 'VIDEO';
+    const thumb = m.thumbnail_url || m.media_url || '';
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface2);border-radius:8px;overflow:hidden;position:relative;aspect-ratio:1';
+    card.innerHTML =
+      `<img src="${{thumb}}" alt="" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.style.display='none'">`+
+      (isVid ? `<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);border-radius:4px;padding:2px 5px;font-size:.65rem">▶</div>` : '')+
+      `<div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,rgba(0,0,0,.7),transparent);padding:8px 6px 4px;font-size:.68rem">`+
+      `<span style="margin-right:6px">❤ ${{m.like_count||0}}</span><span>💬 ${{m.comments_count||0}}</span></div>`;
+    card.title = (m.caption||'').slice(0,120);
+    feed.appendChild(card);
+  }});
+  if (!sorted.length) {{
+    feed.innerHTML = '<div style="color:var(--sub);padding:24px;text-align:center">Nenhum post encontrado</div>';
+  }}
+}}
 </script>
 </body>
 </html>"""
@@ -2730,8 +2882,9 @@ def main():
 
         meta = {"d30": d30, "campanhas": campanhas, "diario": diario}
 
-    print("[ 6/8 ] Meta Orgânico — descobrindo páginas e posts...")
-    organico_fb, organico_ig = [], []
+    print("[ 6/8 ] Meta Orgânico + Instagram — descobrindo páginas e posts...")
+    organico_fb, organico_ig, ig_dados = [], [], {}
+    _page_token_ig, _ig_id = META_TOKEN, IG_ACCOUNT_ID
     try:
         paginas = buscar_paginas()
         if not paginas:
@@ -2741,34 +2894,47 @@ def main():
             page_id    = page["id"]
             page_token = page.get("access_token", META_TOKEN)
             ig_info    = page.get("instagram_business_account") or {}
-            ig_id      = ig_info.get("id", "")
+            ig_id_page = ig_info.get("id", "")
             print(f"       Página: {page.get('name','?')} (id={page_id})")
+            if ig_id_page:
+                _page_token_ig = page_token
+                _ig_id         = ig_id_page
             try:
                 organico_fb = buscar_organico_facebook(page_id, page_token, 90)
                 print(f"       {len(organico_fb)} posts Facebook")
             except Exception as e_fb:
                 print(f"       AVISO Facebook orgânico: {e_fb}")
-            if ig_id:
+            if ig_id_page:
                 try:
-                    organico_ig = buscar_organico_instagram(ig_id, 90)
-                    print(f"       {len(organico_ig)} posts Instagram")
+                    organico_ig = buscar_organico_instagram(ig_id_page, 90)
+                    print(f"       {len(organico_ig)} posts Instagram (orgânico)")
                 except Exception as e_ig:
-                    print(f"       AVISO Instagram (sem permissão instagram_basic): {type(e_ig).__name__}")
+                    print(f"       AVISO Instagram orgânico: {type(e_ig).__name__}")
             else:
                 print("       Instagram Business Account não encontrado na página.")
     except Exception as e:
         print(f"       AVISO geral orgânico: {e}")
 
-    print("[ 7/8 ] Rezdy — reservas (histórico completo)...")
+    print("[ 7/8 ] Instagram — perfil e posts (page token)...")
+    try:
+        ig_dados = buscar_instagram_dados(_ig_id, page_token=_page_token_ig, dias=90)
+        n_posts  = len(ig_dados.get("media", []))
+        seg      = ig_dados.get("perfil", {}).get("followers_count", 0)
+        username = ig_dados.get("perfil", {}).get("username", "?")
+        print(f"       @{username} | {seg:,} seguidores | {n_posts} posts")
+    except Exception as e:
+        print(f"       AVISO Instagram: {e}")
+
+    print("[ 8/8 ] Rezdy — reservas (histórico completo)...")
     reservas = buscar_rezdy_reservas(5000, date_start="2019-01-01")
     print(f"       {len(reservas)} reservas")
 
-    print("[ 8/8 ] Processando e gerando HTML...")
+    print("[ 9/9 ] Processando e gerando HTML...")
     rezdy_dados = processar_rezdy(reservas)
     data_min = rezdy_dados["por_dia"][0]["data"] if rezdy_dados["por_dia"] else "?"
     print(f"       {data_min} a hoje: {rezdy_dados['confirmadas']} conf | R${rezdy_dados['receita']:,.2f} | {len(rezdy_dados['todos_bookings'])} bookings")
 
-    html = gerar_html(meta, rezdy_dados, camps_diario, criativos, agora, organico_fb, organico_ig, cupom_meta)
+    html = gerar_html(meta, rezdy_dados, camps_diario, criativos, agora, organico_fb, organico_ig, cupom_meta, ig_dados)
 
     with open(ARQUIVO_HTML, "w", encoding="utf-8") as f:
         f.write(html)
