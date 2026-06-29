@@ -849,7 +849,6 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     <div class="flex gap-2 flex-wrap">
       <button class="tab-btn active" onclick="switchTab('visao',this)">Visão Geral</button>
       <button class="tab-btn" onclick="switchTab('meta',this)">Meta Ads</button>
-      <button class="tab-btn" onclick="switchTab('instagram',this)">Instagram</button>
       <button class="tab-btn" onclick="switchTab('rezdy',this)">Rezdy Bookings</button>
       <button class="tab-btn" onclick="switchTab('organico',this)">Meta Orgânico</button>
     </div>
@@ -1008,43 +1007,6 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
 </div><!-- /tab-meta -->
 
 
-<!-- ══════════════════════════ INSTAGRAM ══════════════════════════════════ -->
-<div id="tab-instagram" class="tab-content pt-3" style="display:none">
-
-  <!-- Perfil -->
-  <div class="card mb-4" id="ig-perfil-card">
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-      <div id="ig-avatar" style="width:60px;height:60px;border-radius:50%;background:var(--surface2);overflow:hidden;flex-shrink:0">
-        <img id="ig-avatar-img" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
-      </div>
-      <div>
-        <div style="font-weight:700;font-size:1rem" id="ig-username">—</div>
-        <div style="font-size:.78rem;color:var(--sub)" id="ig-bio"></div>
-      </div>
-      <div style="display:flex;gap:24px;margin-left:auto;flex-wrap:wrap">
-        <div style="text-align:center"><div class="kpi-val" style="font-size:1.3rem" id="ig-followers">—</div><div style="font-size:.7rem;color:var(--sub)">Seguidores</div></div>
-        <div style="text-align:center"><div class="kpi-val" style="font-size:1.3rem" id="ig-following">—</div><div style="font-size:.7rem;color:var(--sub)">Seguindo</div></div>
-        <div style="text-align:center"><div class="kpi-val" style="font-size:1.3rem" id="ig-media-count">—</div><div style="font-size:.7rem;color:var(--sub)">Posts</div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- KPIs 30d -->
-  <div class="mb-2" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Posts — últimos 30d</div>
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-    <div class="card"><div class="kpi-label">Posts</div><div class="kpi-val" id="ig-posts-30">—</div></div>
-    <div class="card"><div class="kpi-label">Curtidas</div><div class="kpi-val" style="color:var(--red)" id="ig-likes-30">—</div></div>
-    <div class="card"><div class="kpi-label">Comentários</div><div class="kpi-val" style="color:var(--cyan)" id="ig-comments-30">—</div></div>
-    <div class="card"><div class="kpi-label">Eng. Médio/Post</div><div class="kpi-val" style="color:var(--green)" id="ig-eng-30">—</div></div>
-  </div>
-
-  <!-- Feed recente -->
-  <div class="card">
-    <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Feed Recente</div>
-    <div id="ig-feed" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px"></div>
-  </div>
-
-</div><!-- /tab-instagram -->
 
 
 <!-- ═══════════════════════════ REZDY ════════════════════════════════════ -->
@@ -1336,11 +1298,37 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
 
     <!-- KPIs Instagram -->
     <div class="mb-2" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Instagram Orgânico</div>
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+
+    <!-- Perfil Instagram -->
+    <div class="card mb-3">
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div id="ig-avatar" style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
+          <img id="ig-avatar-img" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:1rem" id="ig-username">@vertical.rio</div>
+          <div style="font-size:.78rem;color:var(--sub);margin-top:2px" id="ig-bio"></div>
+        </div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap">
+          <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700;color:#e1306c" id="ig-followers">—</div><div style="font-size:.68rem;color:var(--sub)">Seguidores</div></div>
+          <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700" id="ig-following">—</div><div style="font-size:.68rem;color:var(--sub)">Seguindo</div></div>
+          <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700" id="ig-media-count">—</div><div style="font-size:.68rem;color:var(--sub)">Posts</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
       <div class="card"><div class="kpi-label">Posts</div><div class="kpi-val" id="org-ig-posts" style="color:#e1306c">—</div></div>
       <div class="card"><div class="kpi-label">Alcance Total</div><div class="kpi-val" id="org-ig-alcance">—</div></div>
       <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="org-ig-impr">—</div></div>
       <div class="card"><div class="kpi-label">Eng. Médio/Post</div><div class="kpi-val" id="org-ig-eng" style="color:var(--cyan)">—</div></div>
+    </div>
+
+    <!-- Feed Instagram -->
+    <div class="card mb-5">
+      <div style="font-weight:600;font-size:.9rem;margin-bottom:14px">Feed Recente — Instagram</div>
+      <div id="ig-feed" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px"></div>
     </div>
 
     <!-- Charts row 1 -->
@@ -1480,7 +1468,7 @@ function switchTab(tab, btn) {{
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + tab).style.display = 'block';
   if (btn) btn.classList.add('active');
-  if (tab === 'instagram' && !_igInited) {{ initInstagram(); _igInited = true; }}
+  if (tab === 'organico' && !_igInited) {{ initInstagram(); _igInited = true; }}
 }}
 
 // ─── Chart registry ───────────────────────────────────────────────────────────
