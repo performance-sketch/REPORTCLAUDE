@@ -1409,8 +1409,7 @@ function buildRezdyDiario(canvasId, rDays) {{
     data:{{
       labels: rDays.map(labelFmt),
       datasets:[
-        {{label:'Confirmadas', data:rDays.map(d=>d.confirmadas), backgroundColor:'rgba(34,197,94,.75)', borderRadius:3, stack:'s'}},
-        {{label:'Abandonadas', data:rDays.map(d=>d.abandonadas), backgroundColor:'rgba(239,68,68,.5)',  borderRadius:3, stack:'s'}},
+        {{label:'Confirmadas', data:rDays.map(d=>d.confirmadas), backgroundColor:'rgba(34,197,94,.75)', borderRadius:3}},
       ]
     }},
     options:{{
