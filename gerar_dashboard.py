@@ -774,7 +774,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <!-- Charts row 1 -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
     <div class="card"><div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Gasto & Cliques Diários</div><canvas id="chartMetaDiario" height="200"></canvas></div>
-    <div class="card"><div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Reservas por Dia</div><canvas id="chartRezdyDiario" height="200"></canvas></div>
+    <div class="card"><div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Bookings Dia &amp; Fulfilments Dia</div><canvas id="chartRezdyDiario" height="200"></canvas></div>
   </div>
 
   <!-- Funnel -->
@@ -917,7 +917,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
     <div class="card">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div style="font-weight:600;font-size:.9rem">Reservas por Dia</div>
+        <div style="font-weight:600;font-size:.9rem">Bookings Dia &amp; Fulfilments Dia</div>
         <div style="display:flex;gap:4px">
           <button onclick="setRezdyView('dia')"    class="tab-btn active rezdy-view-btn rezdy-view-btn-dia"    style="padding:3px 10px;font-size:.72rem">Dia</button>
           <button onclick="setRezdyView('semana')" class="tab-btn rezdy-view-btn rezdy-view-btn-semana" style="padding:3px 10px;font-size:.72rem">Semana</button>
@@ -1404,18 +1404,42 @@ function setRezdyView(view) {{
 
 function buildRezdyDiario(canvasId, rDays) {{
   const labelFmt = d => _rezdyView === 'mes' ? d.data : fAxis(d.data);
+
+  // Fulfilments por bucket (tour date) — usa BOOKINGS global (só CONFIRMED)
+  const bucket = date => {{
+    if (_rezdyView === 'semana') {{
+      const d = new Date(date + 'T12:00:00');
+      d.setDate(d.getDate() - d.getDay());
+      return d.toISOString().slice(0,10);
+    }}
+    if (_rezdyView === 'mes') return date.slice(0,7);
+    return date;
+  }};
+  const from = rDays.length ? rDays[0].data : '';
+  const to   = rDays.length ? rDays[rDays.length-1].data : '';
+  const fulfMap = {{}};
+  for (const b of BOOKINGS) {{
+    if (b.t && b.t >= from && b.t <= to) {{
+      const k = bucket(b.t);
+      fulfMap[k] = (fulfMap[k]||0) + 1;
+    }}
+  }}
+
   makeChart(canvasId, {{
     type:'bar',
     data:{{
       labels: rDays.map(labelFmt),
       datasets:[
-        {{label:'Confirmadas', data:rDays.map(d=>d.confirmadas), backgroundColor:'rgba(34,197,94,.75)', borderRadius:3}},
+        {{label:'Bookings Dia', data:rDays.map(d=>d.confirmadas), backgroundColor:'rgba(34,197,94,.75)', borderRadius:3, order:2}},
+        {{label:'Fulfilments Dia', data:rDays.map(d=>fulfMap[d.data]||0),
+          type:'line', borderColor:'#06b6d4', backgroundColor:'rgba(6,182,212,.12)',
+          fill:true, tension:0.4, pointRadius:2, borderWidth:2, order:1}},
       ]
     }},
     options:{{
       responsive:true, interaction:{{mode:'index',intersect:false}},
       plugins:{{legend:{{labels:{{boxWidth:12}}}}}},
-      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}}}}}}
+      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true,ticks:{{stepSize:1}}}}}}
     }}
   }});
 }}
