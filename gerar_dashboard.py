@@ -388,6 +388,17 @@ def buscar_organico_instagram(ig_id, dias=90):
 
 
 # ─── Rezdy ────────────────────────────────────────────────────────────────────
+def _utc_to_brt_date(dt_str):
+    """Converte dateCreated (UTC ISO) para data em BRT (UTC-3)."""
+    if not dt_str:
+        return ""
+    try:
+        dt = datetime.strptime(dt_str[:19], "%Y-%m-%dT%H:%M:%S")
+        return (dt - timedelta(hours=3)).strftime("%Y-%m-%d")
+    except Exception:
+        return dt_str[:10]
+
+
 def buscar_rezdy_reservas(limite_total=5000, date_start="2019-01-01"):
     todas, offset = [], 0
     while offset < limite_total:
@@ -413,7 +424,7 @@ def processar_rezdy(reservas, dias=None):
         recentes = reservas
     else:
         corte    = (hoje - timedelta(days=dias)).strftime("%Y-%m-%d")
-        recentes = [b for b in reservas if (b.get("dateCreated") or "")[:10] >= corte]
+        recentes = [b for b in reservas if _utc_to_brt_date(b.get("dateCreated") or "") >= corte]
 
     por_dia     = defaultdict(lambda: {"confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0})
     por_produto = defaultdict(lambda: {"ordens": 0, "confirmadas": 0, "receita": 0.0})
@@ -421,7 +432,7 @@ def processar_rezdy(reservas, dias=None):
     por_fonte   = defaultdict(lambda: {"ordens": 0, "receita": 0.0})
 
     for b in recentes:
-        data    = (b.get("dateCreated") or "")[:10]
+        data    = _utc_to_brt_date(b.get("dateCreated") or "")
         status  = b.get("status", "?")
         valor   = float(b.get("totalAmount", 0) or 0)
         fonte   = (b.get("source") or "ONLINE").upper()
@@ -485,7 +496,7 @@ def processar_rezdy(reservas, dias=None):
     for b in reservas:
         if b.get("status") != "CONFIRMED":
             continue
-        created_ym = (b.get("dateCreated") or "")[:7]
+        created_ym = _utc_to_brt_date(b.get("dateCreated") or "")[:7]
         itens = b.get("items", [])
         if not itens:
             continue
@@ -509,7 +520,7 @@ def processar_rezdy(reservas, dias=None):
             "s":  b.get("status", ""),
             "p":  produto,
             "v":  round(float(b.get("totalAmount", 0) or 0), 2),
-            "d":  (b.get("dateCreated") or "")[:10],
+            "d":  _utc_to_brt_date(b.get("dateCreated") or ""),
             "t":  tour_dt,
             "f":  (b.get("source") or "ONLINE").upper(),
             "cc": cc,
@@ -537,7 +548,7 @@ def processar_rezdy(reservas, dias=None):
             "produto": produto,
             "pax":     pax,
             "valor":   round(valor, 2),
-            "data":    (b.get("dateCreated") or "")[:10],
+            "data":    _utc_to_brt_date(b.get("dateCreated") or ""),
             "tour_dt": tour_dt,
             "nome":    (b.get("customer") or {}).get("name", "-"),
             "fonte":   (b.get("source") or "ONLINE").upper(),
