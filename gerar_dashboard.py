@@ -190,6 +190,23 @@ def buscar_meta_criativos(preset="last_30d"):
     return resultado
 
 
+def buscar_meta_adsets_cupom(preset="last_30d"):
+    """Retorna gasto dos conjuntos de anúncio com nome contendo 'carioquinha' ou 'voabrasil'."""
+    resp = meta_get(f"{META_ACCOUNT}/insights", {
+        "level": "adset", "fields": "adset_name,spend", "date_preset": preset, "limit": 500,
+    })
+    dados = _paginar(resp)
+    grupos = {"CARIOQUINHA": 0.0, "VOABRASIL": 0.0}
+    for a in dados:
+        nome  = (a.get("adset_name") or "").lower().replace(" ", "").replace("-", "")
+        spend = float(a.get("spend", 0) or 0)
+        if "carioquinha" in nome:
+            grupos["CARIOQUINHA"] += spend
+        if "voabrasil" in nome:
+            grupos["VOABRASIL"] += spend
+    return {k: round(v, 2) for k, v in grupos.items()}
+
+
 def buscar_meta_diario(dias=90):
     hoje   = datetime.now()
     inicio = hoje - timedelta(days=dias - 1)
@@ -615,7 +632,7 @@ def processar_rezdy(reservas, dias=None):
 
 
 # ─── HTML ─────────────────────────────────────────────────────────────────────
-def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organico_fb=None, organico_ig=None):
+def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organico_fb=None, organico_ig=None, cupom_meta=None):
     d30 = meta["d30"]
     rz  = rezdy_dados
 
@@ -643,7 +660,42 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     def fmt_n(v):   return f"{int(v):,}".replace(",", ".")
     def fmt_pct(v): return f"{v:.2f}%"
 
-    # Cupons agora são 100 % dinâmicos via JS — sem rows pré-geradas no Python
+    # ── Card CUPONS: cruzamento Meta spend × Rezdy receita ────────────────────
+    _cupom_meta = cupom_meta or {}
+    _rezdy_receita = {c["cupom"]: c["receita"] for c in rz.get("cupom_resumo", [])}
+    _rezdy_usos    = {c["cupom"]: c["usos"]    for c in rz.get("cupom_resumo", [])}
+    _grupos_cupom = ["CARIOQUINHA", "VOABRASIL"]
+
+    def _cupom_card_html(nome):
+        investido = _cupom_meta.get(nome, 0.0)
+        receita   = _rezdy_receita.get(nome, 0.0)
+        usos      = _rezdy_usos.get(nome, 0)
+        roi       = round(receita / investido, 2) if investido else 0
+        roi_class = "color:var(--green)" if roi >= 1 else "color:var(--red)"
+        roi_label = f"{roi:.2f}x" if investido else "—"
+        inv_label = fmt_brl(investido) if investido else "—"
+        return f"""
+    <div class="card">
+      <div style="font-weight:700;font-size:.85rem;margin-bottom:14px;letter-spacing:.06em">{nome}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div>
+          <div class="kpi-label">Investido Meta</div>
+          <div style="font-size:1.05rem;font-weight:700;color:var(--indigo);font-variant-numeric:tabular-nums">{inv_label}</div>
+        </div>
+        <div>
+          <div class="kpi-label">Receita Rezdy</div>
+          <div style="font-size:1.05rem;font-weight:700;color:var(--green);font-variant-numeric:tabular-nums">{fmt_brl(receita) if receita else "—"}</div>
+          <div style="font-size:.68rem;color:var(--sub);margin-top:2px">{usos} booking{"s" if usos != 1 else ""}</div>
+        </div>
+        <div>
+          <div class="kpi-label">ROI</div>
+          <div style="font-size:1.05rem;font-weight:700;{roi_class};font-variant-numeric:tabular-nums">{roi_label}</div>
+          <div style="font-size:.68rem;color:var(--sub);margin-top:2px">receita/gasto</div>
+        </div>
+      </div>
+    </div>"""
+
+    _cupom_cards_html = "\n".join(_cupom_card_html(g) for g in _grupos_cupom)
 
 
     html = f"""<!DOCTYPE html>
@@ -780,6 +832,12 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     <div class="card"><div class="kpi-label">Confirmadas</div><div class="kpi-val" id="vg-conf">{rz["confirmadas"]}</div><div class="kpi-delta" id="vg-conf-sub">{rz["total"]} total ({fmt_pct(rz["taxa_conv"])} conv.)</div></div>
     <div class="card"><div class="kpi-label">Ticket Médio</div><div class="kpi-val" id="vg-ticket">{fmt_brl(rz["ticket_medio"])}</div><div class="kpi-delta" id="vg-ticket-delta"></div></div>
     <div class="card"><div class="kpi-label">CPA (Gasto÷Conf.)</div><div class="kpi-val" id="vg-cpa" style="color:var(--amber)">—</div><div class="kpi-delta" id="vg-cpa-delta"></div></div>
+  </div>
+
+  <!-- CUPONS -->
+  <div class="mb-2" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Cupons</div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+{_cupom_cards_html}
   </div>
 
   <!-- Charts row 1 -->
@@ -2634,6 +2692,7 @@ def main():
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     print(f"\n=== Vertical Rio Dashboard — {agora} ===\n")
 
+    cupom_meta = {}
     if rezdy_only:
         print("[META ] Modo --rezdy-only: reutilizando dados Meta do HTML atual...")
         meta, camps_diario, criativos = _extrair_meta_do_html()
@@ -2665,6 +2724,9 @@ def main():
         criativos_d90 = buscar_meta_criativos("last_90d")
         criativos = {"d7": criativos_d7, "d14": criativos_d14, "d30": criativos_d30, "d90": criativos_d90}
         print(f"       {len(criativos_d30)} criativos ativos (30d)")
+
+        cupom_meta = buscar_meta_adsets_cupom("last_30d")
+        print(f"       Cupons Meta: carioquinha R${cupom_meta.get('CARIOQUINHA',0):,.2f} | voabrasil R${cupom_meta.get('VOABRASIL',0):,.2f}")
 
         meta = {"d30": d30, "campanhas": campanhas, "diario": diario}
 
@@ -2706,7 +2768,7 @@ def main():
     data_min = rezdy_dados["por_dia"][0]["data"] if rezdy_dados["por_dia"] else "?"
     print(f"       {data_min} a hoje: {rezdy_dados['confirmadas']} conf | R${rezdy_dados['receita']:,.2f} | {len(rezdy_dados['todos_bookings'])} bookings")
 
-    html = gerar_html(meta, rezdy_dados, camps_diario, criativos, agora, organico_fb, organico_ig)
+    html = gerar_html(meta, rezdy_dados, camps_diario, criativos, agora, organico_fb, organico_ig, cupom_meta)
 
     with open(ARQUIVO_HTML, "w", encoding="utf-8") as f:
         f.write(html)
