@@ -191,8 +191,51 @@ def buscar_meta_criativos(preset="last_30d"):
     return resultado
 
 
-def buscar_instagram_dados(ig_id=None, page_token=None, dias=90):
-    """Busca perfil + posts do Instagram Business Account via Graph API."""
+def _buscar_insights_lote(media_list, token):
+    """Busca insights (salvos, compartilhamentos, alcance, impressões) em batch de até 50 por vez."""
+    resultado = {}
+    if not media_list:
+        return resultado
+    tipos = {m["id"]: (m.get("media_product_type") or m.get("media_type") or "").upper() for m in media_list}
+    ids   = [m["id"] for m in media_list if "id" in m]
+    lote_size = 50
+    for i in range(0, len(ids), lote_size):
+        lote  = ids[i:i+lote_size]
+        batch = []
+        for mid in lote:
+            t = tipos.get(mid, "")
+            if t in ("REELS", "REEL", "VIDEO"):
+                metrics = "plays,saved,shares,reach,impressions"
+            else:
+                metrics = "saved,shares,reach,impressions"
+            batch.append({"method": "GET", "relative_url": f"{mid}/insights?metric={metrics}"})
+        try:
+            r = requests.post(
+                META_BASE,
+                data={"access_token": token, "batch": json.dumps(batch), "include_headers": "false"},
+                timeout=30,
+            )
+            r.raise_for_status()
+            for mid, res in zip(lote, r.json() or []):
+                if not res or res.get("code") != 200:
+                    continue
+                body = json.loads(res.get("body", "{}"))
+                m = {}
+                for item in body.get("data", []):
+                    name = item.get("name", "")
+                    val  = item.get("value")
+                    if val is None:
+                        vals = item.get("values", [])
+                        val  = vals[0].get("value", 0) if vals else 0
+                    m[name] = val
+                resultado[mid] = m
+        except Exception as e:
+            print(f"       AVISO insights batch [{i//lote_size+1}]: {e}")
+    return resultado
+
+
+def buscar_instagram_dados(ig_id=None, page_token=None, dias=180):
+    """Busca perfil + posts + insights do Instagram Business Account via Graph API."""
     ig_id  = ig_id or IG_ACCOUNT_ID
     token  = page_token or META_TOKEN
     resultado = {"perfil": {}, "media": []}
@@ -214,23 +257,27 @@ def buscar_instagram_dados(ig_id=None, page_token=None, dias=90):
         print(f"       AVISO Instagram: sem permissão instagram_basic — gere um token com essa permissão")
         return resultado
 
-    # ── Mídia (posts recentes) ─────────────────────────────────────────────────
-    corte = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
-    posts = []
-    r = _ig_get(f"{ig_id}/media", {
-        "fields": "id,media_type,media_url,thumbnail_url,timestamp,caption,like_count,comments_count,permalink",
-        "limit": 50,
-    })
+    # ── Mídia (posts 180d) ─────────────────────────────────────────────────────
+    corte  = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
+    posts  = []
+    fields = "id,media_type,media_product_type,media_url,thumbnail_url,timestamp,caption,like_count,comments_count,permalink"
+    r = _ig_get(f"{ig_id}/media", {"fields": fields, "limit": 50})
     while isinstance(r, dict):
         lote = r.get("data", [])
         posts.extend(lote)
         after = (r.get("paging") or {}).get("cursors", {}).get("after")
         if not after or not lote or (lote[-1].get("timestamp") or "")[:10] < corte:
             break
-        r = _ig_get(f"{ig_id}/media", {
-            "fields": "id,media_type,media_url,thumbnail_url,timestamp,caption,like_count,comments_count,permalink",
-            "limit": 50, "after": after,
-        })
+        r = _ig_get(f"{ig_id}/media", {"fields": fields, "limit": 50, "after": after})
+    posts = [p for p in posts if (p.get("timestamp") or "")[:10] >= corte]
+
+    # ── Insights por post (salvos, compartilhamentos, alcance, impressões) ────
+    if posts:
+        print(f"       Insights para {len(posts)} posts...")
+        insights = _buscar_insights_lote(posts, token)
+        for post in posts:
+            post["insights"] = insights.get(post["id"], {})
+
     resultado["media"] = posts
     return resultado
 
@@ -1324,10 +1371,32 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
       <div class="card"><div class="kpi-label">Eng. Médio/Post</div><div class="kpi-val" id="org-ig-eng" style="color:var(--cyan)">—</div></div>
     </div>
 
-    <!-- Feed Instagram -->
+    <!-- Feed Instagram — 180d com filtros por tipo e métricas -->
     <div class="card mb-5">
-      <div style="font-weight:600;font-size:.9rem;margin-bottom:14px">Feed Recente — Instagram</div>
-      <div id="ig-feed" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px"></div>
+      <!-- Header + controles -->
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <div style="font-weight:600;font-size:.9rem">Feed Instagram — 180 dias</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div id="ig-type-filters" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+          <select id="ig-sort-sel" onchange="igRenderFeed()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer">
+            <option value="recentes">Mais recentes</option>
+            <option value="curtidas">Mais curtidas</option>
+            <option value="salvos">Mais salvos</option>
+            <option value="compartilhados">Mais compartilhados</option>
+            <option value="comentarios">Mais comentários</option>
+            <option value="alcance">Maior alcance</option>
+            <option value="impressoes">Mais impressões</option>
+          </select>
+        </div>
+      </div>
+      <!-- Mini KPIs do filtro ativo -->
+      <div id="ig-mini-kpis" style="display:flex;gap:14px;flex-wrap:wrap;padding:10px 14px;background:var(--surface2);border-radius:8px;margin-bottom:14px"></div>
+      <!-- Grid de posts -->
+      <div id="ig-feed" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px"></div>
+      <!-- Load more -->
+      <div id="ig-load-more-wrap" style="text-align:center;margin-top:14px;display:none">
+        <button onclick="igLoadMore()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 22px;font-size:.8rem;cursor:pointer">Carregar mais</button>
+      </div>
     </div>
 
     <!-- Charts row 1 -->
@@ -2747,6 +2816,18 @@ function _fN2(v) {{
   return String(v);
 }}
 
+// ─── Instagram Feed ────────────────────────────────────────────────────────────
+let _igFilter   = 'todos';
+let _igSort     = 'recentes';
+let _igPage     = 1;
+const _igPgSize = 24;
+
+function _igTipo(m) {{
+  const pt = ((m.media_product_type) || '').toUpperCase();
+  if (pt === 'REELS' || pt === 'REEL') return 'REELS';
+  return ((m.media_type) || 'IMAGE').toUpperCase();
+}}
+
 function initInstagram() {{
   const ig = IG_DATA;
   if (!ig || !ig.perfil) return;
@@ -2764,39 +2845,142 @@ function initInstagram() {{
     img.style.display = 'block';
   }}
 
-  // KPIs 30d
+  // Botões de filtro por tipo
   const media = ig.media || [];
-  const corte = new Date(); corte.setDate(corte.getDate()-30);
-  const recentes = media.filter(m => new Date(m.timestamp) >= corte);
-  const likes    = recentes.reduce((s,m) => s+(m.like_count||0), 0);
-  const comms    = recentes.reduce((s,m) => s+(m.comments_count||0), 0);
-  const eng      = recentes.length ? Math.round((likes+comms)/recentes.length) : 0;
-  document.getElementById('ig-posts-30').textContent    = recentes.length;
-  document.getElementById('ig-likes-30').textContent    = _fN2(likes);
-  document.getElementById('ig-comments-30').textContent = _fN2(comms);
-  document.getElementById('ig-eng-30').textContent      = _fN2(eng);
+  const contagem = {{todos: media.length}};
+  media.forEach(m => {{
+    const t = _igTipo(m);
+    contagem[t] = (contagem[t] || 0) + 1;
+  }});
+  const ordem  = ['todos','REELS','CAROUSEL_ALBUM','IMAGE','VIDEO'];
+  const labels = {{todos:'Todos', REELS:'Reels', CAROUSEL_ALBUM:'Carrossel', IMAGE:'Imagem', VIDEO:'Vídeo'}};
+  const filtersEl = document.getElementById('ig-type-filters');
+  if (filtersEl) {{
+    filtersEl.innerHTML = ordem.filter(k => contagem[k]).map(k =>
+      `<button id="igf-${{k}}" onclick="igFiltrar('${{k}}')" style="padding:3px 10px;border-radius:20px;border:1px solid var(--border);background:${{k==='todos'?'var(--accent)':'var(--surface2)'}};color:${{k==='todos'?'#fff':'var(--text)'}};font-size:.72rem;cursor:pointer;white-space:nowrap">
+        ${{labels[k]}} <span style="opacity:.65">${{contagem[k]}}</span>
+      </button>`
+    ).join('');
+  }}
 
-  // Feed
-  const feed = document.getElementById('ig-feed');
+  igRenderFeed();
+}}
+
+function igFiltrar(tipo) {{
+  _igFilter = tipo;
+  _igPage   = 1;
+  document.querySelectorAll('[id^="igf-"]').forEach(b => {{
+    const active = b.id === 'igf-' + tipo;
+    b.style.background = active ? 'var(--accent)' : 'var(--surface2)';
+    b.style.color      = active ? '#fff'          : 'var(--text)';
+  }});
+  igRenderFeed();
+}}
+
+function igRenderFeed() {{
+  _igSort = ((document.getElementById('ig-sort-sel') || {{}}).value) || 'recentes';
+  const media = (IG_DATA.media || []);
+
+  const filtrada = _igFilter === 'todos' ? media : media.filter(m => _igTipo(m) === _igFilter);
+
+  const ordenada = [...filtrada].sort((a, b) => {{
+    const ins = x => x.insights || {{}};
+    if (_igSort === 'recentes')       return new Date(b.timestamp) - new Date(a.timestamp);
+    if (_igSort === 'curtidas')       return (b.like_count||0) - (a.like_count||0);
+    if (_igSort === 'salvos')         return (ins(b).saved||0) - (ins(a).saved||0);
+    if (_igSort === 'compartilhados') return (ins(b).shares||0) - (ins(a).shares||0);
+    if (_igSort === 'comentarios')    return (b.comments_count||0) - (a.comments_count||0);
+    if (_igSort === 'alcance')        return (ins(b).reach||0) - (ins(a).reach||0);
+    if (_igSort === 'impressoes')     return (ins(b).impressions||0) - (ins(a).impressions||0);
+    return 0;
+  }});
+
+  // Mini KPIs
+  const ins  = x => x.insights || {{}};
+  const totL = filtrada.reduce((s,m) => s+(m.like_count||0), 0);
+  const totC = filtrada.reduce((s,m) => s+(m.comments_count||0), 0);
+  const totS = filtrada.reduce((s,m) => s+(ins(m).saved||0), 0);
+  const totSh= filtrada.reduce((s,m) => s+(ins(m).shares||0), 0);
+  const totR = filtrada.reduce((s,m) => s+(ins(m).reach||0), 0);
+  const totI = filtrada.reduce((s,m) => s+(ins(m).impressions||0), 0);
+  const totP = filtrada.reduce((s,m) => s+(ins(m).plays||0), 0);
+  const avgE = filtrada.length ? Math.round((totL+totC+totS)/filtrada.length) : 0;
+  const kEl  = document.getElementById('ig-mini-kpis');
+  if (kEl) {{
+    const K = (l,v,c) => `<div style="display:flex;flex-direction:column;gap:1px"><span style="font-size:.6rem;color:var(--sub);text-transform:uppercase;letter-spacing:.05em">${{l}}</span><span style="font-weight:700;font-size:.9rem;color:${{c||'var(--text)'}}">${{_fN2(v)}}</span></div>`;
+    kEl.innerHTML =
+      K('Posts', filtrada.length, '#e1306c') +
+      K('Curtidas', totL) +
+      K('Coments.', totC) +
+      K('Salvos', totS, 'var(--cyan)') +
+      K('Compart.', totSh, 'var(--green)') +
+      (totR ? K('Alcance', totR, '#8a3ab9') : '') +
+      (totI ? K('Impressões', totI) : '') +
+      (totP ? K('Plays', totP, '#e6683c') : '') +
+      K('Eng.Médio', avgE, 'var(--accent)');
+  }}
+
+  // Renderiza cards
+  const pagina = ordenada.slice(0, _igPage * _igPgSize);
+  const feed   = document.getElementById('ig-feed');
   if (!feed) return;
   feed.innerHTML = '';
-  const sorted = [...media].sort((a,b) => new Date(b.timestamp)-new Date(a.timestamp)).slice(0,18);
-  sorted.forEach(m => {{
-    const isVid = m.media_type === 'VIDEO';
+
+  const badgeMap = {{
+    REELS:          {{bg:'linear-gradient(135deg,#8a3ab9,#e95950)', label:'▶ Reel'}},
+    CAROUSEL_ALBUM: {{bg:'linear-gradient(135deg,#405de6,#833ab4)', label:'⊞ Carrossel'}},
+    VIDEO:          {{bg:'rgba(0,0,0,.75)',                         label:'▶ Vídeo'}},
+  }};
+
+  pagina.forEach(m => {{
+    const tipo  = _igTipo(m);
     const thumb = m.thumbnail_url || m.media_url || '';
-    const card = document.createElement('div');
-    card.style.cssText = 'background:var(--surface2);border-radius:8px;overflow:hidden;position:relative;aspect-ratio:1';
-    card.innerHTML =
-      `<img src="${{thumb}}" alt="" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.style.display='none'">`+
-      (isVid ? `<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);border-radius:4px;padding:2px 5px;font-size:.65rem">▶</div>` : '')+
-      `<div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,rgba(0,0,0,.7),transparent);padding:8px 6px 4px;font-size:.68rem">`+
-      `<span style="margin-right:6px">❤ ${{m.like_count||0}}</span><span>💬 ${{m.comments_count||0}}</span></div>`;
-    card.title = (m.caption||'').slice(0,120);
-    feed.appendChild(card);
+    const i     = m.insights || {{}};
+    const saved   = i.saved       || 0;
+    const shares  = i.shares      || 0;
+    const plays   = i.plays       || 0;
+    const reach   = i.reach       || 0;
+    const impr    = i.impressions  || 0;
+    const badge   = badgeMap[tipo];
+    const dt      = (m.timestamp || '').slice(0, 10);
+
+    const div = document.createElement('div');
+    div.style.cssText = 'background:var(--surface2);border-radius:10px;overflow:hidden;cursor:pointer;transition:transform .15s;display:flex;flex-direction:column';
+    div.onmouseenter = () => div.style.transform = 'translateY(-2px)';
+    div.onmouseleave = () => div.style.transform = '';
+    if (m.permalink) div.onclick = () => window.open(m.permalink, '_blank');
+    div.title = (m.caption || '').slice(0, 140);
+
+    div.innerHTML = `
+      <div style="position:relative;aspect-ratio:1;overflow:hidden;background:#111;flex-shrink:0">
+        ${{thumb ? `<img src="${{thumb}}" alt="" style="width:100%;height:100%;object-fit:cover" loading="lazy" onerror="this.parentNode.style.background='#222'">` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#555;font-size:2rem">📷</div>'}}
+        ${{badge ? `<div style="position:absolute;top:6px;left:6px;background:${{badge.bg}};border-radius:5px;padding:2px 7px;font-size:.58rem;color:#fff;font-weight:700;letter-spacing:.02em">${{badge.label}}</div>` : ''}}
+      </div>
+      <div style="padding:8px 9px 8px;flex:1;display:flex;flex-direction:column;gap:4px">
+        <div style="font-size:.6rem;color:var(--sub)">${{dt}}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 6px;font-size:.7rem">
+          <span title="Curtidas">♥ ${{_fN2(m.like_count||0)}}</span>
+          <span title="Comentários">💬 ${{_fN2(m.comments_count||0)}}</span>
+          <span title="Salvos" style="color:var(--cyan)">🔖 ${{saved ? _fN2(saved) : '—'}}</span>
+          <span title="Compartilhamentos" style="color:var(--green)">↗ ${{shares ? _fN2(shares) : '—'}}</span>
+          ${{reach ? `<span title="Alcance" style="color:#8a3ab9">👁 ${{_fN2(reach)}}</span>` : '<span></span>'}}
+          ${{impr  ? `<span title="Impressões" style="color:var(--sub);font-size:.65rem">· ${{_fN2(impr)}} impr.</span>` : ''}}
+          ${{plays ? `<span title="Plays" style="color:#e6683c;grid-column:span 2">▶ ${{_fN2(plays)}} plays</span>` : ''}}
+        </div>
+      </div>`;
+    feed.appendChild(div);
   }});
-  if (!sorted.length) {{
-    feed.innerHTML = '<div style="color:var(--sub);padding:24px;text-align:center">Nenhum post encontrado</div>';
-  }}
+
+  const lmw = document.getElementById('ig-load-more-wrap');
+  if (lmw) lmw.style.display = ordenada.length > pagina.length ? 'block' : 'none';
+
+  if (!pagina.length)
+    feed.innerHTML = '<div style="color:var(--sub);padding:32px;text-align:center;grid-column:1/-1">Nenhum post encontrado neste filtro</div>';
+}}
+
+function igLoadMore() {{
+  _igPage++;
+  igRenderFeed();
 }}
 </script>
 </body>
@@ -2904,7 +3088,7 @@ def main():
 
     print("[ 7/8 ] Instagram — perfil e posts (page token)...")
     try:
-        ig_dados = buscar_instagram_dados(_ig_id, page_token=_page_token_ig, dias=90)
+        ig_dados = buscar_instagram_dados(_ig_id, page_token=_page_token_ig, dias=180)
         n_posts  = len(ig_dados.get("media", []))
         seg      = ig_dados.get("perfil", {}).get("followers_count", 0)
         username = ig_dados.get("perfil", {}).get("username", "?")
