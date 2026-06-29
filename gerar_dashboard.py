@@ -30,10 +30,9 @@ _load_env()
 
 # ─── Credenciais ──────────────────────────────────────────────────────────────
 _FB_TOKEN_FALLBACK = (
-    "EAASW2NZCdwiwBRjZBpgb4Unpo2rqHB8iSJfZAt3BkkHB3pxrkevSo0UYx5RnF5hN7dn"
-    "ZCUV5yqwuPtfVUqhE3gAyOcfbLvYVhmMb5Cq1OAZBtJQ9cCRQAIce6wU7QNiX1iy11K"
-    "H8tELm38U8HKTZCIgriWrUZBUdP4l60xZB4zxDgJVyZAC2bllLHsyDHnos83noLfm9SX"
-    "14s0ZCmAP0iLTZBAw5OShUTb84yf4AgQCz201"
+    "EAASW2NZCdwiwBRz0ut9U02WZBxzry9983eJS4KPfokom09ZCb5A7kNurGpzw4t1jWKJbFdToWoImQsRIi0NWRZChb"
+    "IoAydZCpq1L5FigZBoyf09RBZC4OZAKGyZCYf3fv9CnD9SFGNzdluCrOZCo0SeTEtcwQfE4Xn5iBA2lmZCLkatKt3"
+    "imYbPb1QYUgIpCeBV48nvsZB8hOHLeEjFZCpicBksYfYOepjdm5e8woDUsTRJhvzrDBIBWO08ZCfzBnkZCuH1da8P9IBQwuazyRI4jZB0uGRRD1QZDZD"
 )
 META_TOKEN   = os.environ.get("META_TOKEN",   _FB_TOKEN_FALLBACK)
 META_ACCOUNT    = os.environ.get("META_ACCOUNT",    "act_2613909812239242")
