@@ -494,9 +494,11 @@ def processar_rezdy(reservas, dias=None):
             heatmap[created_ym][tour_ym] += 1
     heatmap_dict = {k: dict(v) for k, v in sorted(heatmap.items())}
 
-    # Todos os bookings do período (compacto para JS) — inclui tour date e país
+    # Todos os bookings do período (compacto para JS) — apenas CONFIRMED
     todos_bookings = []
     for b in sorted(recentes, key=lambda x: x.get("dateCreated", ""), reverse=True):
+        if b.get("status") != "CONFIRMED":
+            continue
         itens   = b.get("items", [])
         produto = itens[0].get("productName", "-") if itens else "-"
         tour_dt = (itens[0].get("startTimeLocal") or "")[:10] if itens else ""
@@ -1123,11 +1125,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <input type="search" id="book-search" placeholder="🔍 Buscar nº ou produto…" oninput="debounce(()=>renderBookings(currentFrom,currentTo),250)()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem;width:180px;outline:none">
         <select id="book-filter-status" onchange="renderBookings(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
-          <option value="">Todos os status</option>
-          <option value="CONFIRMED">Confirmados</option>
-          <option value="ABANDONED_CART">Abandonados</option>
-          <option value="CANCELLED">Cancelados</option>
-          <option value="ON_HOLD">On Hold</option>
+          <option value="CONFIRMED" selected>Confirmados</option>
         </select>
         <button onclick="exportCSV()" title="Exportar CSV" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">⬇ CSV</button>
         <button id="book-section-toggle" onclick="toggleCard('book-section-body','book-section-toggle')" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">▲ Minimizar</button>
