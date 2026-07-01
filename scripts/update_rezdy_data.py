@@ -23,7 +23,8 @@ if not API_KEY:
 # Rezdy returns bookings newest-first; we paginate until dateCreated < STOP_DATE.
 STOP_DATE   = "2025-05-25"   # stop fetching when we reach orders older than this
 PERIOD_2025 = ("2025-05-26", "2025-06-27")
-PERIOD_2026 = ("2026-05-26", "2026-07-01")
+_today      = date.today().isoformat()
+PERIOD_2026 = ("2026-05-26", _today)
 
 
 # ── CATEGORISATION ─────────────────────────────────────────────────────────────
