@@ -6,13 +6,14 @@ regenerate ORDERS in analise-rezdy-periodos.html and ORDERS_PERIODOS in index.ht
 Env:  REZDY_API_KEY  (set as GitHub Actions secret)
 Run:  python scripts/update_rezdy_data.py
 """
-import os, re, sys, time, requests
+import os, re, sys, time, json as _json, requests
 from datetime import date
 
 API_KEY  = os.environ.get("REZDY_API_KEY", "")
 BASE_URL = "https://api.rezdy.com/v1"
 SCRIPT_DIR  = os.path.dirname(__file__)
 HTML_FILE   = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "analise-rezdy-periodos.html"))
+INDEX_FILE  = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "index.html"))
 JSON_FILE   = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "data", "periodos.json"))
 
 if not API_KEY:
@@ -173,8 +174,6 @@ def main():
          f'"pax":{o["pax"]},"prod":"{o["prod"]}","src":"{o["src"]}"}}')
         for o in orders
     ]
-    import json as _json
-
     today = date.today().strftime("%d/%m/%Y")
 
     # ── Patch analise-rezdy-periodos.html ──────────────────────────────────────
@@ -195,6 +194,64 @@ def main():
     with open(JSON_FILE, "w", encoding="utf-8") as f:
         _json.dump(orders, f, ensure_ascii=False, separators=(",", ":"))
     print(f"Updated data/periodos.json            ({len(orders)} orders)")
+
+    # ── Update REZDY_DATA in index.html ──────────────────────────────────────
+    por_dia_map = {}
+    for b in raw:
+        d = (b.get("dateCreated") or "")[:10]
+        if not d or d < STOP_DATE:
+            continue
+        if d not in por_dia_map:
+            por_dia_map[d] = {"data": d, "confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0}
+        status = (b.get("status") or "").upper()
+        receita = float(b.get("totalAmount") or 0)
+        if status == "CONFIRMED":
+            por_dia_map[d]["confirmadas"] += 1
+            por_dia_map[d]["receita"] += receita
+        elif status in ("CANCELLED", "ABANDONED"):
+            por_dia_map[d]["abandonadas"] += 1
+        else:
+            por_dia_map[d]["outras"] += 1
+
+    for v in por_dia_map.values():
+        v["receita"] = round(v["receita"], 2)
+
+    por_dia = sorted(por_dia_map.values(), key=lambda x: x["data"])
+
+    total        = len(raw)
+    confirmadas  = sum(1 for b in raw if (b.get("status") or "").upper() == "CONFIRMED")
+    abandonadas  = sum(1 for b in raw if (b.get("status") or "").upper() in ("CANCELLED", "ABANDONED"))
+    outras       = total - confirmadas - abandonadas
+    receita_tot  = sum(float(b.get("totalAmount") or 0) for b in raw
+                       if (b.get("status") or "").upper() == "CONFIRMED")
+    ticket_medio = round(receita_tot / confirmadas, 2) if confirmadas else 0
+    taxa_conv    = round(confirmadas / total * 100, 1) if total else 0
+
+    rezdy_data = {
+        "total": total,
+        "confirmadas": confirmadas,
+        "abandonadas": abandonadas,
+        "outras": outras,
+        "receita": round(receita_tot, 2),
+        "ticket_medio": ticket_medio,
+        "taxa_conv": taxa_conv,
+        "fulfilments": confirmadas,
+        "por_dia": por_dia,
+    }
+
+    with open(INDEX_FILE, "r", encoding="utf-8") as f:
+        idx_html = f.read()
+
+    novo_json = _json.dumps(rezdy_data, ensure_ascii=False, separators=(",", ":"))
+    padrao = r"(const REZDY_DATA\s*=\s*)(\{[\s\S]*?\})(\s*;)"
+    novo_html, n = re.subn(padrao, lambda m: m.group(1) + novo_json + m.group(3), idx_html)
+    if n == 0:
+        print("AVISO: REZDY_DATA não encontrado em index.html")
+    else:
+        with open(INDEX_FILE, "w", encoding="utf-8") as f:
+            f.write(novo_html)
+        print(f"Updated REZDY_DATA in index.html      ({len(por_dia)} dias, {confirmadas} confirmadas)")
+
     print(f"Footer: {today}")
 
 
