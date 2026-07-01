@@ -156,6 +156,75 @@ def fetch_diario():
     return result
 
 
+def _objetivo(camp):
+    if "SEGUIDORES" in camp:
+        return "SEGUIDORES"
+    if "[MSG]" in camp:
+        return "MSG"
+    return "TRAF"
+
+
+def fetch_criativos_cards():
+    """Top 4 ads por objetivo (SEGUIDORES, MSG, TRAF) com thumbnail."""
+    dados, resp = [], api_get(f"{AD_ACCOUNT_ID}/insights", {
+        "level":       "ad",
+        "fields":      "ad_id,ad_name,campaign_name,spend,impressions,clicks,ctr,cpc,actions",
+        "date_preset": "last_30d",
+        "limit":       500,
+    })
+    dados.extend(resp.get("data", []))
+    while resp.get("paging", {}).get("next"):
+        resp = requests.get(resp["paging"]["next"], timeout=30).json()
+        dados.extend(resp.get("data", []))
+
+    grupos = {"SEGUIDORES": [], "MSG": [], "TRAF": []}
+    for row in dados:
+        spend = float(row.get("spend") or 0)
+        if spend <= 0:
+            continue
+        cat  = _objetivo(row.get("campaign_name", ""))
+        acts = extract_actions(row.get("actions", []))
+        grupos[cat].append({
+            "ad_id":   row["ad_id"],
+            "nome":    row.get("ad_name", ""),
+            "camp":    row.get("campaign_name", ""),
+            "gasto":   round(spend, 2),
+            "impr":    int(row.get("impressions") or 0),
+            "cliques": int(row.get("clicks") or 0),
+            "ctr":     round(float(row.get("ctr") or 0), 2),
+            "cpc":     round(float(row.get("cpc") or 0), 2),
+            "msg":     acts["conexoes"],
+            "thumb":   "",
+        })
+
+    for cat in grupos:
+        grupos[cat].sort(key=lambda x: -x["gasto"])
+        grupos[cat] = grupos[cat][:4]
+
+    top_ids = [a["ad_id"] for ads in grupos.values() for a in ads]
+    if top_ids:
+        try:
+            thumb_map = {}
+            for i in range(0, len(top_ids), 50):
+                batch = top_ids[i:i+50]
+                r = api_get("", {
+                    "ids":    ",".join(batch),
+                    "fields": "id,creative{thumbnail_url,image_url}",
+                })
+                for ad_id, ad_data in r.items():
+                    cr = ad_data.get("creative") or {}
+                    thumb_map[ad_id] = cr.get("thumbnail_url") or cr.get("image_url") or ""
+            for ads in grupos.values():
+                for a in ads:
+                    a["thumb"] = thumb_map.get(a["ad_id"], "")
+        except Exception as e:
+            print(f"  [AVISO] Thumbnails: {e}")
+
+    total = sum(len(v) for v in grupos.values())
+    print(f"  {total} criativos com thumb ({len([a for ads in grupos.values() for a in ads if a['thumb']])} com imagem)")
+    return grupos
+
+
 def main():
     print(f"\n=== Meta Ads Update — {datetime.now().strftime('%d/%m/%Y %H:%M')} ===\n")
 
@@ -172,7 +241,10 @@ def main():
     diario = fetch_diario()
     print(f"  {len(diario)} dias com gasto")
 
-    meta_data = {"d30": d30, "campanhas": campanhas, "diario": diario}
+    print("Buscando criativos com thumbnails...")
+    criativos_cards = fetch_criativos_cards()
+
+    meta_data = {"d30": d30, "campanhas": campanhas, "diario": diario, "criativos_cards": criativos_cards}
 
     with open(HTML_FILE, "r", encoding="utf-8") as f:
         html = f.read()
