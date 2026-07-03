@@ -25,10 +25,17 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Fetch Rezdy data and update HTML
+      - name: Fetch Rezdy periods data and update analise-rezdy-periodos.html
         env:
           REZDY_API_KEY: ${{ secrets.REZDY_API_KEY }}
         run: python scripts/update_rezdy_data.py
+
+      - name: Regenerate full dashboard (Meta Ads + Rezdy) — keeps every chart in sync
+        env:
+          META_TOKEN: ${{ secrets.META_TOKEN }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          REZDY_KEY: ${{ secrets.REZDY_API_KEY }}
+        run: python gerar_dashboard.py
 
       - name: Commit and push if data changed
         run: |
