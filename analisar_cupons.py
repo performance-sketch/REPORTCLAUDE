@@ -13,13 +13,26 @@ Uso:
 
 import argparse
 import json
+import os
+import pathlib
 import sys
 import time
 import requests
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-REZDY_KEY  = "dc7f8d97256e484b8763a983ded2ba22"
+
+def _load_env():
+    env_path = pathlib.Path(__file__).parent / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+_load_env()
+
+REZDY_KEY  = os.environ["REZDY_KEY"]
 REZDY_BASE = "https://api.rezdy.com/v1"
 
 

@@ -29,16 +29,11 @@ def _load_env():
 _load_env()
 
 # ─── Credenciais ──────────────────────────────────────────────────────────────
-_FB_TOKEN_FALLBACK = (
-    "EAASW2NZCdwiwBRz0ut9U02WZBxzry9983eJS4KPfokom09ZCb5A7kNurGpzw4t1jWKJbFdToWoImQsRIi0NWRZChb"
-    "IoAydZCpq1L5FigZBoyf09RBZC4OZAKGyZCYf3fv9CnD9SFGNzdluCrOZCo0SeTEtcwQfE4Xn5iBA2lmZCLkatKt3"
-    "imYbPb1QYUgIpCeBV48nvsZB8hOHLeEjFZCpicBksYfYOepjdm5e8woDUsTRJhvzrDBIBWO08ZCfzBnkZCuH1da8P9IBQwuazyRI4jZB0uGRRD1QZDZD"
-)
-META_TOKEN   = os.environ.get("META_TOKEN",   _FB_TOKEN_FALLBACK)
-META_ACCOUNT    = os.environ.get("META_ACCOUNT",    "act_2613909812239242")
+META_TOKEN      = os.environ["META_TOKEN"]
+META_ACCOUNT    = os.environ.get("META_ACCOUNT", "act_2613909812239242")
 META_BASE       = "https://graph.facebook.com/v19.0"
-META_APP_SECRET = os.environ.get("META_APP_SECRET", "548119a2b92726e1312a52c2eaf284bb")
-REZDY_KEY       = os.environ.get("REZDY_KEY",       "dc7f8d97256e484b8763a983ded2ba22")
+META_APP_SECRET = os.environ["META_APP_SECRET"]
+REZDY_KEY       = os.environ["REZDY_KEY"]
 REZDY_BASE      = "https://api.rezdy.com/v1"
 ARQUIVO_HTML    = "index.html"
 IG_ACCOUNT_ID   = "17841404363695690"
@@ -383,7 +378,7 @@ def buscar_organico_facebook(page_id, page_token, dias=90):
     corte = (hoje - timedelta(days=dias)).strftime("%Y-%m-%d")
     resp  = requests.get(f"{META_BASE}/{page_id}/posts", params={
         "access_token": page_token,
-        "fields": "id,message,story,created_time",
+        "fields": "id,message,story,created_time,type",
         "limit": 100,
     }, timeout=20)
     resp.raise_for_status()
@@ -405,6 +400,13 @@ def buscar_organico_facebook(page_id, page_token, dias=90):
         data = requests.get(next_url, timeout=20).json()
     posts = todos
 
+    avisos_emitidos = set()
+
+    def _avisar_uma_vez(chave, msg):
+        if chave not in avisos_emitidos:
+            avisos_emitidos.add(chave)
+            print(f"       AVISO {chave}: {msg}")
+
     resultado = []
     for post in posts:
         pid = post.get("id", "")
@@ -413,21 +415,27 @@ def buscar_organico_facebook(page_id, page_token, dias=90):
                 "access_token": page_token,
                 "metric": "post_impressions,post_reach,post_engaged_users,post_clicks",
             }, timeout=15).json()
+            if "error" in ins_r:
+                raise RuntimeError(ins_r["error"].get("message", ins_r["error"]))
             insights = {}
             for item in ins_r.get("data", []):
                 vals = item.get("values") or [{}]
                 insights[item["name"]] = int(vals[-1].get("value", 0) or 0)
-        except Exception:
+        except Exception as e:
+            _avisar_uma_vez("post insights (impressões/alcance)", e)
             insights = {}
         try:
             reacts_r = requests.get(f"{META_BASE}/{pid}", params={
                 "access_token": page_token,
                 "fields": "reactions.summary(true),comments.summary(true),shares",
             }, timeout=15).json()
+            if "error" in reacts_r:
+                raise RuntimeError(reacts_r["error"].get("message", reacts_r["error"]))
             curtidas        = reacts_r.get("reactions", {}).get("summary", {}).get("total_count", 0)
             comentarios     = reacts_r.get("comments", {}).get("summary", {}).get("total_count", 0)
             compartilhamentos = reacts_r.get("shares", {}).get("count", 0) if reacts_r.get("shares") else 0
-        except Exception:
+        except Exception as e:
+            _avisar_uma_vez("post reações (curtidas/comentários/shares)", e)
             curtidas = comentarios = compartilhamentos = 0
 
         resultado.append({
@@ -492,6 +500,93 @@ def buscar_organico_instagram(ig_id, dias=90):
             "engajados":         0,
             "cliques":           0,
             "compartilhamentos": 0,
+        })
+    return resultado
+
+
+def buscar_stories_instagram(ig_id):
+    """Busca Stories atualmente ativas (postadas nas últimas 24h) do Instagram.
+    A API da Meta só expõe stories ainda ativas — depois que expiram (24h),
+    não há como recuperar histórico. Por isso este dado é sempre "do momento"."""
+    try:
+        resp = requests.get(f"{META_BASE}/{ig_id}/stories", params={
+            "access_token": META_TOKEN,
+            "fields": "id,media_type,timestamp",
+        }, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"       AVISO Instagram stories: {e}")
+        return []
+
+    resultado = []
+    for s in data.get("data", []):
+        sid = s.get("id", "")
+        alcance = respostas = 0
+        try:
+            ins_r = requests.get(f"{META_BASE}/{sid}/insights", params={
+                "access_token": META_TOKEN,
+                "metric": "reach,replies",
+            }, timeout=15).json()
+            if "error" in ins_r:
+                raise RuntimeError(ins_r["error"].get("message", ins_r["error"]))
+            vals = {item["name"]: (item.get("values") or [{}])[-1].get("value", 0)
+                    for item in ins_r.get("data", [])}
+            alcance   = int(vals.get("reach", 0) or 0)
+            respostas = int(vals.get("replies", 0) or 0)
+        except Exception:
+            pass
+        resultado.append({
+            "id":                sid,
+            "tipo":              "story",
+            "plataforma":        "instagram",
+            "mensagem":          "Story",
+            "criado_em":         s.get("timestamp", "")[:10],
+            "impressoes":        0,
+            "alcance":           alcance,
+            "curtidas":          0,
+            "comentarios":       respostas,
+            "salvos":            0,
+            "video_views":       0,
+            "engajados":         0,
+            "cliques":           0,
+            "compartilhamentos": 0,
+        })
+    return resultado
+
+
+def buscar_stories_facebook(page_id, page_token):
+    """Busca Stories atualmente ativas (últimas 24h) da Page do Facebook.
+    Acesso a este endpoint é restrito pela Meta (nem todo app/token tem acesso) —
+    falha aqui é esperada e não deve interromper o resto da coleta orgânica."""
+    try:
+        resp = requests.get(f"{META_BASE}/{page_id}/stories", params={
+            "access_token": page_token,
+            "fields": "id,created_time",
+        }, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"       AVISO Facebook stories (endpoint restrito pela Meta): {e}")
+        return []
+
+    resultado = []
+    for s in data.get("data", []):
+        resultado.append({
+            "id":                s.get("id", ""),
+            "tipo":              "story",
+            "plataforma":        "facebook",
+            "mensagem":          "Story",
+            "criado_em":         s.get("created_time", "")[:10],
+            "impressoes":        0,
+            "alcance":           0,
+            "curtidas":          0,
+            "comentarios":       0,
+            "compartilhamentos": 0,
+            "salvos":            0,
+            "video_views":       0,
+            "engajados":         0,
+            "cliques":           0,
         })
     return resultado
 
@@ -1335,10 +1430,11 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
 
     <!-- KPIs Facebook -->
     <div class="mb-2 mt-1" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Facebook Orgânico</div>
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
       <div class="card"><div class="kpi-label">Posts</div><div class="kpi-val" id="org-fb-posts" style="color:#1877f2">—</div></div>
-      <div class="card"><div class="kpi-label">Alcance Total</div><div class="kpi-val" id="org-fb-alcance">—</div></div>
-      <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="org-fb-impr">—</div></div>
+      <div class="card"><div class="kpi-label">Stories Ativas</div><div class="kpi-val" id="org-fb-stories" style="color:#f59e0b" title="Stories no ar agora (expiram em 24h — sem histórico)">—</div></div>
+      <div class="card"><div class="kpi-label">Curtidas Totais</div><div class="kpi-val" id="org-fb-curtidas">—</div></div>
+      <div class="card"><div class="kpi-label">Comentários Totais</div><div class="kpi-val" id="org-fb-comentarios">—</div></div>
       <div class="card"><div class="kpi-label">Eng. Médio/Post</div><div class="kpi-val" id="org-fb-eng" style="color:var(--cyan)">—</div></div>
     </div>
 
@@ -1364,10 +1460,11 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
       </div>
     </div>
 
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
       <div class="card"><div class="kpi-label">Posts</div><div class="kpi-val" id="org-ig-posts" style="color:#e1306c">—</div></div>
-      <div class="card"><div class="kpi-label">Alcance Total</div><div class="kpi-val" id="org-ig-alcance">—</div></div>
-      <div class="card"><div class="kpi-label">Impressões</div><div class="kpi-val" id="org-ig-impr">—</div></div>
+      <div class="card"><div class="kpi-label">Stories Ativas</div><div class="kpi-val" id="org-ig-stories" style="color:#f59e0b" title="Stories no ar agora (expiram em 24h — sem histórico)">—</div></div>
+      <div class="card"><div class="kpi-label">Curtidas Totais</div><div class="kpi-val" id="org-ig-curtidas">—</div></div>
+      <div class="card"><div class="kpi-label">Comentários Totais</div><div class="kpi-val" id="org-ig-comentarios">—</div></div>
       <div class="card"><div class="kpi-label">Eng. Médio/Post</div><div class="kpi-val" id="org-ig-eng" style="color:var(--cyan)">—</div></div>
     </div>
 
@@ -1418,7 +1515,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
         <canvas id="chartOrgTipos" height="220"></canvas>
       </div>
       <div class="card">
-        <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Alcance Semanal — FB vs IG</div>
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Curtidas Semanais — FB vs IG</div>
         <canvas id="chartOrgAlcance" height="220"></canvas>
       </div>
     </div>
@@ -1437,8 +1534,6 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
             <option value="">Todos os tipos</option>
           </select>
           <select id="org-sort" onchange="renderOrganicoPosts()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
-            <option value="alcance">Por Alcance</option>
-            <option value="impressoes">Por Impressões</option>
             <option value="curtidas">Por Curtidas</option>
             <option value="comentarios">Por Comentários</option>
             <option value="criado_em">Por Data</option>
@@ -1452,8 +1547,6 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
             <th>Tipo</th>
             <th>Data</th>
             <th>Post</th>
-            <th style="text-align:right">Alcance</th>
-            <th style="text-align:right">Impressões</th>
             <th style="text-align:right">Curtidas</th>
             <th style="text-align:right">Coment.</th>
             <th style="text-align:right">Salvos/Comp.</th>
@@ -2521,18 +2614,26 @@ function renderOrganico(from, to) {{
   const fb = posts.filter(p => p.plataforma === 'facebook');
   const ig = posts.filter(p => p.plataforma === 'instagram');
 
+  // Stories são efêmeras (só as ativas agora) — tratadas separado dos posts permanentes
+  const fbPosts   = fb.filter(p => p.tipo !== 'story');
+  const igPosts   = ig.filter(p => p.tipo !== 'story');
+  const fbStories = fb.filter(p => p.tipo === 'story');
+  const igStories = ig.filter(p => p.tipo === 'story');
+
   const sum  = (arr, f) => arr.reduce((s, p) => s + (p[f] || 0), 0);
   const engFb = p => (p.curtidas||0) + (p.comentarios||0) + (p.compartilhamentos||0) + (p.engajados||0);
   const engIg = p => (p.curtidas||0) + (p.comentarios||0) + (p.salvos||0);
 
-  setText('org-fb-posts',   fb.length);
-  setText('org-ig-posts',   ig.length);
-  setText('org-fb-alcance', fN(sum(fb, 'alcance')));
-  setText('org-ig-alcance', fN(sum(ig, 'alcance')));
-  setText('org-fb-impr',    fN(sum(fb, 'impressoes')));
-  setText('org-ig-impr',    fN(sum(ig, 'impressoes')));
-  setText('org-fb-eng',     fb.length ? fN(Math.round(fb.reduce((s,p)=>s+engFb(p),0)/fb.length)) : '—');
-  setText('org-ig-eng',     ig.length ? fN(Math.round(ig.reduce((s,p)=>s+engIg(p),0)/ig.length)) : '—');
+  setText('org-fb-posts',       fbPosts.length);
+  setText('org-ig-posts',       igPosts.length);
+  setText('org-fb-stories',     fbStories.length);
+  setText('org-ig-stories',     igStories.length);
+  setText('org-fb-curtidas',    fN(sum(fbPosts, 'curtidas')));
+  setText('org-ig-curtidas',    fN(sum(igPosts, 'curtidas')));
+  setText('org-fb-comentarios', fN(sum(fbPosts, 'comentarios')));
+  setText('org-ig-comentarios', fN(sum(igPosts, 'comentarios')));
+  setText('org-fb-eng',     fbPosts.length ? fN(Math.round(fbPosts.reduce((s,p)=>s+engFb(p),0)/fbPosts.length)) : '—');
+  setText('org-ig-eng',     igPosts.length ? fN(Math.round(igPosts.reduce((s,p)=>s+engIg(p),0)/igPosts.length)) : '—');
 
   // Atualiza filtro de tipos
   const tipos = [...new Set(posts.map(p => p.tipo))].sort();
@@ -2551,7 +2652,7 @@ function renderOrganico(from, to) {{
 function renderOrganicoPosts() {{
   const plat = (document.getElementById('org-filter-plataforma')||{{}}).value || '';
   const tipo = (document.getElementById('org-filter-tipo')||{{}}).value || '';
-  const sort = (document.getElementById('org-sort')||{{}}).value || 'alcance';
+  const sort = (document.getElementById('org-sort')||{{}}).value || 'curtidas';
 
   let posts = _orgPosts.filter(p =>
     (!plat || p.plataforma === plat) &&
@@ -2565,7 +2666,7 @@ function renderOrganicoPosts() {{
   const tbody = document.getElementById('org-posts-body');
   if (!tbody) return;
   if (!posts.length) {{
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:24px">Nenhum post no período.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px">Nenhum post no período.</td></tr>';
     return;
   }}
   const engFb = p => (p.curtidas||0) + (p.comentarios||0) + (p.compartilhamentos||0) + (p.engajados||0);
@@ -2578,13 +2679,14 @@ function renderOrganicoPosts() {{
     const salvComp  = isFb ? fN(p.compartilhamentos||0) : fN(p.salvos||0);
     const totalEng  = isFb ? engFb(p) : engIg(p);
     const msgEsc    = escHtml(p.mensagem||'—');
+    const isStory   = p.tipo === 'story';
     return `<tr>
       <td><span class="badge" style="background:${{platColor}}22;color:${{platColor}};font-weight:700">${{platLbl}}</span></td>
-      <td style="font-size:.75rem;color:#94a3b8;text-transform:capitalize">${{escHtml(p.tipo||'')}}</td>
+      <td>${{isStory
+        ? '<span class="badge" style="background:#f59e0b22;color:#f59e0b;font-weight:700">⏱ Story</span>'
+        : `<span style="font-size:.75rem;color:#94a3b8;text-transform:capitalize">${{escHtml(p.tipo||'')}}</span>`}}</td>
       <td style="color:#94a3b8;white-space:nowrap">${{fDate(p.criado_em)}}</td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem" title="${{msgEsc}}">${{msgEsc}}</td>
-      <td style="text-align:right;font-weight:600">${{fN(p.alcance||0)}}</td>
-      <td style="text-align:right;color:#94a3b8">${{fN(p.impressoes||0)}}</td>
       <td style="text-align:right;color:#f59e0b">${{fN(p.curtidas||0)}}</td>
       <td style="text-align:right;color:#94a3b8">${{fN(p.comentarios||0)}}</td>
       <td style="text-align:right;color:#22c55e">${{salvComp}}</td>
@@ -2602,12 +2704,12 @@ function buildOrganicoCharts(fb, ig, posts) {{
   makeChart('chartOrgComparativo', {{
     type: 'bar',
     data: {{
-      labels: ['Alcance Médio', 'Impressões Médias', 'Eng. Médio'],
+      labels: ['Curtidas Médias', 'Comentários Médios', 'Eng. Médio'],
       datasets: [
         {{ label:'Facebook', backgroundColor:'rgba(24,119,242,.75)', borderRadius:4,
-           data: [Math.round(avgArr(fb,p=>p.alcance||0)), Math.round(avgArr(fb,p=>p.impressoes||0)), Math.round(avgArr(fb,engFb))] }},
+           data: [Math.round(avgArr(fb,p=>p.curtidas||0)), Math.round(avgArr(fb,p=>p.comentarios||0)), Math.round(avgArr(fb,engFb))] }},
         {{ label:'Instagram', backgroundColor:'rgba(225,48,108,.75)', borderRadius:4,
-           data: [Math.round(avgArr(ig,p=>p.alcance||0)), Math.round(avgArr(ig,p=>p.impressoes||0)), Math.round(avgArr(ig,engIg))] }},
+           data: [Math.round(avgArr(ig,p=>p.curtidas||0)), Math.round(avgArr(ig,p=>p.comentarios||0)), Math.round(avgArr(ig,engIg))] }},
       ]
     }},
     options:{{ responsive:true, interaction:{{mode:'index',intersect:false}},
@@ -2657,14 +2759,14 @@ function buildOrganicoCharts(fb, ig, posts) {{
       scales:{{x:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true}},y:{{grid:{{display:false}}}}}} }}
   }});
 
-  // Gráfico 4 — Alcance semanal FB vs IG
+  // Gráfico 4 — Curtidas semanais FB vs IG
   const alcMap = {{}};
   for (const p of posts) {{
     const dt = new Date(p.criado_em + 'T12:00:00');
     dt.setDate(dt.getDate() - dt.getDay());
     const key = dt.toISOString().slice(0,10);
     if (!alcMap[key]) alcMap[key] = {{fb:0, ig:0}};
-    alcMap[key][p.plataforma==='instagram'?'ig':'fb'] += (p.alcance||0);
+    alcMap[key][p.plataforma==='instagram'?'ig':'fb'] += (p.curtidas||0);
   }}
   const aKeys = Object.keys(alcMap).sort();
   makeChart('chartOrgAlcance', {{
@@ -3075,12 +3177,20 @@ def main():
                 print(f"       {len(organico_fb)} posts Facebook")
             except Exception as e_fb:
                 print(f"       AVISO Facebook orgânico: {e_fb}")
+            stories_fb = buscar_stories_facebook(page_id, page_token)
+            if stories_fb:
+                print(f"       {len(stories_fb)} stories Facebook ativas")
+                organico_fb += stories_fb
             if ig_id_page:
                 try:
                     organico_ig = buscar_organico_instagram(ig_id_page, 90)
                     print(f"       {len(organico_ig)} posts Instagram (orgânico)")
                 except Exception as e_ig:
                     print(f"       AVISO Instagram orgânico: {type(e_ig).__name__}")
+                stories_ig = buscar_stories_instagram(ig_id_page)
+                if stories_ig:
+                    print(f"       {len(stories_ig)} stories Instagram ativas")
+                    organico_ig += stories_ig
             else:
                 print("       Instagram Business Account não encontrado na página.")
     except Exception as e:
