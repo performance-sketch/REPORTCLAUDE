@@ -61,11 +61,18 @@ def fetch_all_bookings() -> list:
     print(f"Fetching bookings (stopping when dateCreated < {STOP_DATE})...")
 
     while True:
-        resp = requests.get(
-            f"{BASE_URL}/bookings",
-            params={"apiKey": API_KEY, "limit": limit, "offset": offset},
-            timeout=30,
-        )
+        for attempt in range(4):
+            resp = requests.get(
+                f"{BASE_URL}/bookings",
+                params={"apiKey": API_KEY, "limit": limit, "offset": offset},
+                timeout=30,
+            )
+            if resp.status_code == 406 and attempt < 3:
+                wait = 15 * (attempt + 1)
+                print(f"  rate limited at offset={offset}, waiting {wait}s...")
+                time.sleep(wait)
+                continue
+            break
         if not resp.ok:
             print(f"  API error {resp.status_code}: {resp.text[:300]}")
             resp.raise_for_status()
@@ -82,7 +89,7 @@ def fetch_all_bookings() -> list:
             break
 
         offset += limit
-        time.sleep(0.1)   # stay well under 100 req/min rate limit
+        time.sleep(0.8)   # stay well under 100 req/min rate limit
 
     return all_b
 
