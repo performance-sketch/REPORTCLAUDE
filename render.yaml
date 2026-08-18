@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: reportclaude-dashboard
+    env: docker
+    dockerfilePath: ./apps/auth-dashboard/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: DASHBOARD_USERNAME
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: SESSION_SECRET_KEY
+        generateValue: true
