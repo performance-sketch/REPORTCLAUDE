@@ -735,6 +735,36 @@ def processar_rezdy(reservas, dias=None):
             "vend": vendedor,
         })
 
+    # Bookings CANCELLED/ON_HOLD de vendedores internos (não entram no todos_bookings
+    # acima, que é só CONFIRMED e alimenta gráficos que assumem isso) — usado no card
+    # e na tabela de reservas quando filtrando por vendedor
+    bookings_vendedor_extra = []
+    for b in sorted(recentes, key=lambda x: x.get("dateCreated", ""), reverse=True):
+        if b.get("status") not in ("CANCELLED", "ON_HOLD"):
+            continue
+        criado_por = b.get("createdBy") or {}
+        vendedor   = f"{criado_por.get('firstName', '')} {criado_por.get('lastName', '')}".strip()
+        if not vendedor:
+            continue
+        itens   = b.get("items", [])
+        produto = itens[0].get("productName", "-") if itens else "-"
+        tour_dt = (itens[0].get("startTimeLocal") or "")[:10] if itens else ""
+        pax     = sum(i.get("totalQuantity", 1) for i in itens) if itens else 1
+        cc      = (b.get("customer", {}).get("countryCode") or "??").upper()
+        bookings_vendedor_extra.append({
+            "n":  b.get("orderNumber", ""),
+            "s":  b.get("status", ""),
+            "p":  produto,
+            "v":  round(float(b.get("totalAmount", 0) or 0), 2),
+            "d":  _utc_to_brt_date(b.get("dateCreated") or ""),
+            "t":  tour_dt,
+            "f":  (b.get("source") or "ONLINE").upper(),
+            "cc": cc,
+            "px": pax,
+            "nome": (b.get("customer") or {}).get("name", "-"),
+            "vend": vendedor,
+        })
+
     # ── Voos confirmados com cupom ─────────────────────────────────────────────
     voos_cupom   = []
     cupom_resumo = defaultdict(lambda: {"usos": 0, "receita": 0.0, "produtos": defaultdict(int)})
@@ -815,6 +845,7 @@ def processar_rezdy(reservas, dias=None):
         "por_fonte":      {k: {"ordens": v["ordens"], "receita": round(v["receita"], 2)}
                            for k, v in por_fonte.items()},
         "todos_bookings": todos_bookings,
+        "bookings_vendedor_extra": bookings_vendedor_extra,
         "heatmap":        heatmap_dict,
         "voos_cupom":      voos_cupom,
         "cupom_resumo":    cupom_resumo_lista,
@@ -828,12 +859,13 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     rz  = rezdy_dados
 
     # Remove campos pesados de rezdy_json (embutidos separado)
-    _excluir = ("todos_bookings", "heatmap", "voos_cupom", "cupom_resumo", "cupom_status")
+    _excluir = ("todos_bookings", "bookings_vendedor_extra", "heatmap", "voos_cupom", "cupom_resumo", "cupom_status")
     rz_slim = {k: v for k, v in rz.items() if k not in _excluir}
     meta_json         = json.dumps(meta,                   ensure_ascii=False)
     rezdy_json        = json.dumps(rz_slim,                ensure_ascii=False)
     camps_diario_json = json.dumps(camps_diario,           ensure_ascii=False)
     bookings_json     = json.dumps(rz["todos_bookings"],   ensure_ascii=False)
+    bookings_vend_extra_json = json.dumps(rz["bookings_vendedor_extra"], ensure_ascii=False)
     heatmap_json      = json.dumps(rz["heatmap"],          ensure_ascii=False)
     criativos_json    = json.dumps(criativos if isinstance(criativos, dict) else {"d7": criativos, "d14": criativos, "d30": criativos, "d90": criativos}, ensure_ascii=False)
     organico_lista    = (organico_fb or []) + (organico_ig or [])
@@ -1299,6 +1331,8 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
           <th style="text-align:right">Receita</th>
           <th style="text-align:right">Ticket Médio</th>
           <th style="text-align:right">% dos Internos</th>
+          <th style="text-align:right">Cancelados</th>
+          <th style="text-align:right">On Hold</th>
         </tr></thead>
         <tbody id="vendedores-body"></tbody>
       </table>
@@ -1624,6 +1658,7 @@ const META_DATA    = {meta_json};
 const REZDY_DATA   = {rezdy_json};
 const CAMPS_DIARIO = {camps_diario_json};
 const BOOKINGS     = {bookings_json};
+const BOOKINGS_VEND_EXTRA = {bookings_vend_extra_json};
 const HEATMAP      = {heatmap_json};
 const CRIATIVOS_PERIODOS = {criativos_json};
 const IG_DATA      = {ig_json};
@@ -2434,10 +2469,16 @@ function renderBookings(from, to) {{
   const statusFilter   = (document.getElementById('book-filter-status') || {{}}).value || '';
   const vendedorFilter = (document.getElementById('book-filter-vendedor') || {{}}).value || '';
   const searchVal    = ((document.getElementById('book-search') || {{}}).value || '').toLowerCase().trim();
-  const filtered = BOOKINGS.filter(b => {{
+  // Filtrando por um vendedor específico: inclui também as reservas dele
+  // CANCELLED/ON_HOLD (fora do BOOKINGS principal, que é só CONFIRMED).
+  const pool = vendedorFilter
+    ? BOOKINGS.concat(BOOKINGS_VEND_EXTRA).sort((a,b) => b.d.localeCompare(a.d))
+    : BOOKINGS;
+  const filtered = pool.filter(b => {{
     if (b.d < from || b.d > to) return false;
-    if (statusFilter && b.s !== statusFilter) return false;
-    if (vendedorFilter && b.vend !== vendedorFilter) return false;
+    if (vendedorFilter) {{
+      if (b.vend !== vendedorFilter) return false;
+    }} else if (statusFilter && b.s !== statusFilter) return false;
     if (searchVal) {{
       const haystack = (b.n + ' ' + b.p + ' ' + (b.f||'')).toLowerCase();
       if (!haystack.includes(searchVal)) return false;
@@ -2448,7 +2489,7 @@ function renderBookings(from, to) {{
   setText('book-count', filtered.length + ' resultados');
   const rows = filtered.slice(0, 300);
   tbody.innerHTML = rows.map(b => {{
-    const sc   = b.s==='CONFIRMED'?'badge-green':b.s==='ABANDONED_CART'?'badge-red':'badge-amber';
+    const sc   = b.s==='CONFIRMED'?'badge-green':(b.s==='ABANDONED_CART'||b.s==='CANCELLED')?'badge-red':'badge-amber';
     const flag = countryFlag(b.cc);
     const pEsc = escHtml(b.p);
     return `<tr>
@@ -2623,7 +2664,7 @@ function filtrarPorVendedor(nome) {{
 function populateVendedorFilter() {{
   const sel = document.getElementById('book-filter-vendedor');
   if (!sel) return;
-  const vendedores = [...new Set(BOOKINGS.filter(b => b.vend).map(b => b.vend))].sort();
+  const vendedores = [...new Set(BOOKINGS.concat(BOOKINGS_VEND_EXTRA).filter(b => b.vend).map(b => b.vend))].sort();
   sel.innerHTML = '<option value="">Todos vendedores</option>' +
     vendedores.map(v => `<option value="${{escHtml(v)}}">${{escHtml(v)}}</option>`).join('');
 }}
@@ -2632,17 +2673,24 @@ function renderVendedores(from, to) {{
   const tbody = document.getElementById('vendedores-body');
   if (!tbody) return;
   const internos = BOOKINGS.filter(b => b.d >= from && b.d <= to && b.s === 'CONFIRMED' && b.f === 'INTERNAL' && b.vend);
+  const extras   = BOOKINGS_VEND_EXTRA.filter(b => b.d >= from && b.d <= to && b.vend);
   const totalInternos = internos.length;
   const porVendedor = {{}};
+  const getVendedor = nome => porVendedor[nome] || (porVendedor[nome] = {{ordens:0, pax:0, receita:0, cancelados:0, onHold:0}});
   for (const b of internos) {{
-    if (!porVendedor[b.vend]) porVendedor[b.vend] = {{ordens:0, pax:0, receita:0}};
-    porVendedor[b.vend].ordens++;
-    porVendedor[b.vend].pax += (b.px || 1);
-    porVendedor[b.vend].receita += b.v;
+    const v = getVendedor(b.vend);
+    v.ordens++;
+    v.pax += (b.px || 1);
+    v.receita += b.v;
+  }}
+  for (const b of extras) {{
+    const v = getVendedor(b.vend);
+    if (b.s === 'CANCELLED') v.cancelados++;
+    else if (b.s === 'ON_HOLD') v.onHold++;
   }}
   const sorted = Object.entries(porVendedor).sort((a,b) => b[1].receita - a[1].receita);
   if (!sorted.length) {{
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:12px">Nenhuma reserva interna no período</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:12px">Nenhuma reserva interna no período</td></tr>`;
     return;
   }}
   tbody.innerHTML = sorted.map(([nome, v]) => {{
@@ -2661,6 +2709,8 @@ function renderVendedores(from, to) {{
           ${{pct}}%
         </div>
       </td>
+      <td style="text-align:right;color:${{v.cancelados ? 'var(--red)' : '#94a3b8'}}">${{v.cancelados}}</td>
+      <td style="text-align:right;color:${{v.onHold ? 'var(--amber)' : '#94a3b8'}}">${{v.onHold}}</td>
     </tr>`;
   }}).join('');
 }}
