@@ -719,6 +719,8 @@ def processar_rezdy(reservas, dias=None):
         tour_dt = (itens[0].get("startTimeLocal") or "")[:10] if itens else ""
         pax     = sum(i.get("totalQuantity", 1) for i in itens) if itens else 1
         cc      = (b.get("customer", {}).get("countryCode") or "??").upper()
+        criado_por = b.get("createdBy") or {}
+        vendedor   = f"{criado_por.get('firstName', '')} {criado_por.get('lastName', '')}".strip()
         todos_bookings.append({
             "n":  b.get("orderNumber", ""),
             "s":  b.get("status", ""),
@@ -729,6 +731,8 @@ def processar_rezdy(reservas, dias=None):
             "f":  (b.get("source") or "ONLINE").upper(),
             "cc": cc,
             "px": pax,
+            "nome": (b.get("customer") or {}).get("name", "-"),
+            "vend": vendedor,
         })
 
     # ── Voos confirmados com cupom ─────────────────────────────────────────────
@@ -1280,6 +1284,27 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     </div>
   </div>
 
+  <!-- Vendedores Internos -->
+  <div class="card mb-5">
+    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div style="font-weight:600;font-size:.9rem">🧑‍💼 Vendedores Internos</div>
+      <span class="badge badge-gray">reservas com fonte INTERNAL, por quem criou no Rezdy</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Vendedor</th>
+          <th style="text-align:right">Bookings</th>
+          <th style="text-align:right">PAX</th>
+          <th style="text-align:right">Receita</th>
+          <th style="text-align:right">Ticket Médio</th>
+          <th style="text-align:right">% dos Internos</th>
+        </tr></thead>
+        <tbody id="vendedores-body"></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="card mb-5">
     <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">Por Produto</div>
     <div style="overflow-x:auto">
@@ -1389,6 +1414,9 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
         <select id="book-filter-status" onchange="renderBookings(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
           <option value="CONFIRMED" selected>Confirmados</option>
         </select>
+        <select id="book-filter-vendedor" onchange="renderBookings(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
+          <option value="">Todos vendedores</option>
+        </select>
         <button onclick="exportCSV()" title="Exportar CSV" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">⬇ CSV</button>
         <button id="book-section-toggle" onclick="toggleCard('book-section-body','book-section-toggle')" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">▲ Minimizar</button>
       </div>
@@ -1400,7 +1428,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
           <th style="text-align:right">PAX</th>
           <th style="text-align:right">Valor</th>
           <th>Reservado em</th><th>Voo em</th>
-          <th>Fonte</th><th>País</th>
+          <th>Fonte</th><th>País</th><th>Cliente (interno)</th><th>Vendedor</th>
         </tr></thead>
         <tbody id="book-body"></tbody>
       </table>
@@ -1427,6 +1455,28 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
 
   <!-- Estado: com dados -->
   <div id="org-com-dados" style="display:{'block' if org_tem_dados else 'none'}">
+
+    <!-- Card Engajamento -->
+    <div class="card mb-4">
+      <div style="font-weight:700;font-size:.85rem;margin-bottom:14px;letter-spacing:.06em">❤️ Engajamento</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div>
+          <div class="kpi-label">Curtidas</div>
+          <div style="font-size:1.05rem;font-weight:700;color:#e1306c;font-variant-numeric:tabular-nums" id="org-eng-curtidas">—</div>
+          <div style="font-size:.68rem;color:var(--sub);margin-top:2px">FB + IG</div>
+        </div>
+        <div>
+          <div class="kpi-label">Compartilhamentos</div>
+          <div style="font-size:1.05rem;font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums" id="org-eng-compartilhamentos">—</div>
+          <div style="font-size:.68rem;color:var(--sub);margin-top:2px">FB compart. + IG salvos</div>
+        </div>
+        <div>
+          <div class="kpi-label">Comentários</div>
+          <div style="font-size:1.05rem;font-weight:700;color:var(--amber);font-variant-numeric:tabular-nums" id="org-eng-comentarios">—</div>
+          <div style="font-size:.68rem;color:var(--sub);margin-top:2px">FB + IG</div>
+        </div>
+      </div>
+    </div>
 
     <!-- KPIs Facebook -->
     <div class="mb-2 mt-1" style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.08em">Facebook Orgânico</div>
@@ -2008,6 +2058,7 @@ function applyDateRange(from, to) {{
   renderProdutos(from, to);
   renderBookings(from, to);
   renderPaises(from, to);
+  renderVendedores(from, to);
   renderCupons(from, to);
   renderOrganico(from, to);
 
@@ -2380,11 +2431,13 @@ let _lastBookingsFiltered = [];
 function renderBookings(from, to) {{
   const tbody = document.getElementById('book-body');
   if (!tbody) return;
-  const statusFilter = (document.getElementById('book-filter-status') || {{}}).value || '';
+  const statusFilter   = (document.getElementById('book-filter-status') || {{}}).value || '';
+  const vendedorFilter = (document.getElementById('book-filter-vendedor') || {{}}).value || '';
   const searchVal    = ((document.getElementById('book-search') || {{}}).value || '').toLowerCase().trim();
   const filtered = BOOKINGS.filter(b => {{
     if (b.d < from || b.d > to) return false;
     if (statusFilter && b.s !== statusFilter) return false;
+    if (vendedorFilter && b.vend !== vendedorFilter) return false;
     if (searchVal) {{
       const haystack = (b.n + ' ' + b.p + ' ' + (b.f||'')).toLowerCase();
       if (!haystack.includes(searchVal)) return false;
@@ -2408,24 +2461,28 @@ function renderBookings(from, to) {{
       <td style="color:#06b6d4">${{b.t ? fDate(b.t) : '—'}}</td>
       <td style="font-size:.75rem;color:#94a3b8">${{escHtml(b.f||'ONLINE')}}</td>
       <td style="font-size:.8rem" title="${{escHtml(b.cc||'')}}">${{flag}} ${{countryName(b.cc)}}</td>
+      <td style="color:#94a3b8;font-size:.8rem;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{escHtml(b.f==='INTERNAL'?(b.nome||'-'):'')}}">${{b.f==='INTERNAL' ? escHtml(b.nome||'-') : '—'}}</td>
+      <td style="font-size:.8rem;color:#94a3b8">${{b.vend ? escHtml(b.vend) : '—'}}</td>
     </tr>`;
   }}).join('');
   if (filtered.length > 300) {{
-    tbody.innerHTML += `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:12px">… e mais ${{filtered.length-300}} reservas. Use a busca ou filtre por status.</td></tr>`;
+    tbody.innerHTML += `<tr><td colspan="11" style="text-align:center;color:#94a3b8;padding:12px">… e mais ${{filtered.length-300}} reservas. Use a busca ou filtre por status.</td></tr>`;
   }}
 }}
 
 function exportCSV() {{
   const rows = _lastBookingsFiltered.length ? _lastBookingsFiltered
     : BOOKINGS.filter(b => b.d >= currentFrom && b.d <= currentTo);
-  const header = ['Nº Pedido','Status','Produto','PAX','Valor','Reservado em','Voo em','Fonte','País'];
+  const header = ['Nº Pedido','Status','Produto','PAX','Valor','Reservado em','Voo em','Fonte','País','Cliente (interno)','Vendedor'];
   const lines = [header.join(';')];
   for (const b of rows) {{
     lines.push([
       b.n, b.s, '"'+String(b.p||'').replace(/"/g,'""')+'"',
       b.px||1, String(b.v).replace('.',','),
       fDate(b.d), b.t ? fDate(b.t) : '',
-      b.f||'ONLINE', b.cc||''
+      b.f||'ONLINE', b.cc||'',
+      b.f==='INTERNAL' ? '"'+String(b.nome||'').replace(/"/g,'""')+'"' : '',
+      '"'+String(b.vend||'').replace(/"/g,'""')+'"'
     ].join(';'));
   }}
   const blob = new Blob(['﻿'+lines.join('\\n')], {{type:'text/csv;charset=utf-8'}});
@@ -2555,6 +2612,59 @@ function renderPaises(from, to) {{
   }}
 }}
 
+function filtrarPorVendedor(nome) {{
+  const sel = document.getElementById('book-filter-vendedor');
+  if (!sel) return;
+  sel.value = nome;
+  renderBookings(currentFrom, currentTo);
+  sel.scrollIntoView({{behavior:'smooth', block:'center'}});
+}}
+
+function populateVendedorFilter() {{
+  const sel = document.getElementById('book-filter-vendedor');
+  if (!sel) return;
+  const vendedores = [...new Set(BOOKINGS.filter(b => b.vend).map(b => b.vend))].sort();
+  sel.innerHTML = '<option value="">Todos vendedores</option>' +
+    vendedores.map(v => `<option value="${{escHtml(v)}}">${{escHtml(v)}}</option>`).join('');
+}}
+
+function renderVendedores(from, to) {{
+  const tbody = document.getElementById('vendedores-body');
+  if (!tbody) return;
+  const internos = BOOKINGS.filter(b => b.d >= from && b.d <= to && b.s === 'CONFIRMED' && b.f === 'INTERNAL' && b.vend);
+  const totalInternos = internos.length;
+  const porVendedor = {{}};
+  for (const b of internos) {{
+    if (!porVendedor[b.vend]) porVendedor[b.vend] = {{ordens:0, pax:0, receita:0}};
+    porVendedor[b.vend].ordens++;
+    porVendedor[b.vend].pax += (b.px || 1);
+    porVendedor[b.vend].receita += b.v;
+  }}
+  const sorted = Object.entries(porVendedor).sort((a,b) => b[1].receita - a[1].receita);
+  if (!sorted.length) {{
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:12px">Nenhuma reserva interna no período</td></tr>`;
+    return;
+  }}
+  tbody.innerHTML = sorted.map(([nome, v]) => {{
+    const ticket = v.ordens ? v.receita / v.ordens : 0;
+    const pct    = totalInternos ? (v.ordens/totalInternos*100).toFixed(1) : '0.0';
+    const nomeAttr = escHtml(nome).replace(/"/g, '&quot;');
+    return `<tr onclick="filtrarPorVendedor(&quot;${{nomeAttr}}&quot;)" style="cursor:pointer" title="Clique para ver os pedidos deste vendedor">
+      <td style="font-weight:600">${{escHtml(nome)}}</td>
+      <td style="text-align:right;font-weight:600">${{v.ordens}}</td>
+      <td style="text-align:right;color:#94a3b8">${{v.pax}}</td>
+      <td style="text-align:right;font-weight:600;color:#22c55e">${{fBRL(v.receita)}}</td>
+      <td style="text-align:right">${{fBRL(ticket)}}</td>
+      <td style="text-align:right">
+        <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">
+          <div style="background:#6366f1;height:6px;border-radius:3px;width:${{Math.round(parseFloat(pct)*.8)}}px"></div>
+          ${{pct}}%
+        </div>
+      </td>
+    </tr>`;
+  }}).join('');
+}}
+
 function renderHeatmap() {{
   const MONTHS_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const allCreated = Object.keys(HEATMAP).sort();
@@ -2634,6 +2744,10 @@ function renderOrganico(from, to) {{
   setText('org-ig-comentarios', fN(sum(igPosts, 'comentarios')));
   setText('org-fb-eng',     fbPosts.length ? fN(Math.round(fbPosts.reduce((s,p)=>s+engFb(p),0)/fbPosts.length)) : '—');
   setText('org-ig-eng',     igPosts.length ? fN(Math.round(igPosts.reduce((s,p)=>s+engIg(p),0)/igPosts.length)) : '—');
+
+  setText('org-eng-curtidas',         fN(sum(fbPosts, 'curtidas') + sum(igPosts, 'curtidas')));
+  setText('org-eng-compartilhamentos', fN(sum(fbPosts, 'compartilhamentos') + sum(igPosts, 'salvos')));
+  setText('org-eng-comentarios',      fN(sum(fbPosts, 'comentarios') + sum(igPosts, 'comentarios')));
 
   // Atualiza filtro de tipos
   const tipos = [...new Set(posts.map(p => p.tipo))].sort();
@@ -2907,6 +3021,7 @@ function buildReceitaHistorico() {{
 }};
 
 // ─── Init com últimos 30d ─────────────────────────────────────────────────────
+populateVendedorFilter();
 applyDateRange(D30_FROM, HOJE);
 renderHeatmap();
 buildReceitaHistorico();
