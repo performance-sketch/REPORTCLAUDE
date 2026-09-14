@@ -1208,18 +1208,6 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     <div class="card"><div class="kpi-label">Projeção Mensal</div><div class="kpi-val" id="rk-proj" style="color:var(--amber);font-size:1.2rem">—</div><div class="kpi-delta" id="rk-proj-sub">confirmações estimadas</div></div>
   </div>
 
-  <!-- Receita Histórica — imune ao filtro de datas -->
-  <div class="card mb-5">
-    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <div>
-        <div style="font-weight:600;font-size:.9rem">Receita Confirmada — Histórico Mensal (todos os anos)</div>
-        <div style="font-size:.72rem;color:var(--sub);margin-top:2px">Baseado em todas as reservas · não muda com o filtro de datas</div>
-      </div>
-      <div style="display:flex;gap:6px" id="hist-year-toggles"></div>
-    </div>
-    <canvas id="chartReceitaHistorico" height="160"></canvas>
-  </div>
-
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
     <div class="card">
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -1248,7 +1236,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <!-- Carrinhos Abandonados / On Hold / Outros status por dia -->
   <div class="card mb-5">
     <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">Abandonados, On Hold &amp; Outros Status por Dia</div>
+      <div style="font-weight:600;font-size:.9rem">Reservas por Status &amp; Dia (Confirmados, Abandonados, On Hold, Outros)</div>
       <div style="display:flex;gap:4px">
         <button onclick="setRezdyView('dia')"    class="tab-btn active rezdy-view-btn rezdy-view-btn-dia"    style="padding:3px 10px;font-size:.72rem">Dia</button>
         <button onclick="setRezdyView('semana')" class="tab-btn rezdy-view-btn rezdy-view-btn-semana" style="padding:3px 10px;font-size:.72rem">Semana</button>
@@ -1887,6 +1875,7 @@ function buildRezdyStatusDiario(canvasId, rDays) {{
     data:{{
       labels: rDays.map(labelFmt),
       datasets:[
+        {{label:'Confirmados', data:rDays.map(d=>d.confirmadas), backgroundColor:'rgba(34,197,94,.75)', borderRadius:3, stack:'s'}},
         {{label:'Abandonados', data:rDays.map(d=>d.abandonadas), backgroundColor:'rgba(239,68,68,.75)', borderRadius:3, stack:'s'}},
         {{label:'On Hold',     data:rDays.map(d=>d.on_hold||0),  backgroundColor:'rgba(245,158,11,.75)', borderRadius:3, stack:'s'}},
         {{label:'Cancelados',  data:rDays.map(d=>d.cancelled||0),backgroundColor:'rgba(148,163,184,.75)', borderRadius:3, stack:'s'}},
@@ -3021,106 +3010,10 @@ flatpickr("#date-range", {{
   }}
 }});
 
-// ─── Receita histórica — Month by Month / Previous Year Comparison ───────────
-function buildReceitaHistorico() {{
-  const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-
-  // Paleta e estilo por ano (ano mais recente = linha cheia, anteriores = tracejadas)
-  const YEAR_STYLE = [
-    {{ color: '#22c55e', width: 2.5, dash: [],     fill: '#22c55e12', radius: 4 }},
-    {{ color: '#6366f1', width: 2,   dash: [6,3],  fill: false,       radius: 3 }},
-    {{ color: '#f59e0b', width: 2,   dash: [4,4],  fill: false,       radius: 3 }},
-    {{ color: '#ef4444', width: 1.5, dash: [3,3],  fill: false,       radius: 3 }},
-  ];
-
-  // Agrupa receita confirmada pelo mês do VOO (tour date = fulfillment)
-  // Fallback para data de criação se não houver tour date
-  const byYearMo = {{}};
-  for (const b of BOOKINGS) {{
-    if (b.s !== 'CONFIRMED') continue;
-    const dateStr = b.t || b.d;
-    if (!dateStr) continue;
-    const yr = dateStr.slice(0, 4);
-    const mo = parseInt(dateStr.slice(5, 7), 10) - 1; // 0-based
-    if (!byYearMo[yr]) byYearMo[yr] = new Array(12).fill(null);
-    byYearMo[yr][mo] = (byYearMo[yr][mo] || 0) + (b.v || 0);
-  }}
-
-  // Ordena anos — mais recente primeiro para legenda, mas datasets do mais antigo ao mais novo
-  const yearsDesc = Object.keys(byYearMo).sort().reverse();
-  const yearsAsc  = [...yearsDesc].reverse();
-
-  const datasets = yearsAsc.map((yr, idx) => {{
-    const styleIdx = yearsAsc.length - 1 - idx; // mais recente = índice 0 no estilo
-    const s = YEAR_STYLE[Math.min(styleIdx, YEAR_STYLE.length - 1)];
-    return {{
-      label: yr,
-      data: byYearMo[yr].map(v => v === null ? null : Math.round(v * 100) / 100),
-      borderColor: s.color,
-      backgroundColor: s.fill || 'transparent',
-      pointBackgroundColor: s.color,
-      pointRadius: s.radius,
-      pointHoverRadius: s.radius + 2,
-      borderWidth: s.width,
-      borderDash: s.dash,
-      tension: 0.35,
-      fill: !!s.fill,
-      spanGaps: false,
-    }};
-  }});
-
-  makeChart('chartReceitaHistorico', {{
-    type: 'line',
-    data: {{ labels: MESES, datasets }},
-    options: {{
-      responsive: true,
-      maintainAspectRatio: true,
-      interaction: {{ mode: 'index', intersect: false }},
-      plugins: {{
-        legend: {{ display: false }},
-        tooltip: {{
-          callbacks: {{
-            label: ctx => ctx.parsed.y !== null
-              ? ' ' + ctx.dataset.label + ': ' + fBRL(ctx.parsed.y)
-              : ' ' + ctx.dataset.label + ': —',
-          }}
-        }}
-      }},
-      scales: {{
-        x: {{ grid: {{ color: 'rgba(51,65,85,.3)' }} }},
-        y: {{
-          beginAtZero: true,
-          grid: {{ color: 'rgba(51,65,85,.4)' }},
-          ticks: {{ callback: v => v >= 1000000
-            ? 'R$' + (v/1000000).toFixed(1) + 'M'
-            : 'R$' + (v/1000).toFixed(0) + 'k'
-          }},
-        }}
-      }}
-    }}
-  }});
-
-  // Legenda manual
-  const togglesEl = document.getElementById('hist-year-toggles');
-  if (togglesEl) {{
-    togglesEl.innerHTML = yearsDesc.map((yr, i) => {{
-      const s = YEAR_STYLE[Math.min(i, YEAR_STYLE.length - 1)];
-      const dashStyle = s.dash.length
-        ? `border-top: 2px dashed ${{s.color}}`
-        : `border-top: 2.5px solid ${{s.color}}`;
-      return `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;color:var(--sub)">
-        <span style="display:inline-block;width:22px;height:0;${{dashStyle}}"></span>
-        <span style="font-weight:${{i===0?'700':'400'}};color:${{i===0?s.color:'var(--sub)'}}">${{yr}}</span>
-      </span>`;
-    }}).join('');
-  }}
-}};
-
 // ─── Init com últimos 30d ─────────────────────────────────────────────────────
 populateVendedorFilter();
 applyDateRange(D30_FROM, HOJE);
 renderHeatmap();
-buildReceitaHistorico();
 
 // ─── Instagram init ───────────────────────────────────────────────────────────
 function _fN2(v) {{
