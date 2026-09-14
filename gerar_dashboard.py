@@ -1236,7 +1236,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <!-- Carrinhos Abandonados / On Hold / Outros status por dia -->
   <div class="card mb-5">
     <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-      <div style="font-weight:600;font-size:.9rem">Reservas por Status &amp; Dia (Confirmados, Abandonados, On Hold, Outros)</div>
+      <div style="font-weight:600;font-size:.9rem">Bookings por Status &amp; Dia (Confirmados, Abandonados, On Hold, Outros)</div>
       <div style="display:flex;gap:4px">
         <button onclick="setRezdyView('dia')"    class="tab-btn active rezdy-view-btn rezdy-view-btn-dia"    style="padding:3px 10px;font-size:.72rem">Dia</button>
         <button onclick="setRezdyView('semana')" class="tab-btn rezdy-view-btn rezdy-view-btn-semana" style="padding:3px 10px;font-size:.72rem">Semana</button>
