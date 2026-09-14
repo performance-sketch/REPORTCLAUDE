@@ -630,7 +630,7 @@ def processar_rezdy(reservas, dias=None):
         corte    = (hoje - timedelta(days=dias)).strftime("%Y-%m-%d")
         recentes = [b for b in reservas if _utc_to_brt_date(b.get("dateCreated") or "") >= corte]
 
-    por_dia     = defaultdict(lambda: {"confirmadas": 0, "abandonadas": 0, "outras": 0, "receita": 0.0})
+    por_dia     = defaultdict(lambda: {"confirmadas": 0, "abandonadas": 0, "on_hold": 0, "cancelled": 0, "outras": 0, "receita": 0.0})
     por_produto = defaultdict(lambda: {"ordens": 0, "confirmadas": 0, "receita": 0.0})
     por_status  = defaultdict(int)
     por_fonte   = defaultdict(lambda: {"ordens": 0, "receita": 0.0})
@@ -655,6 +655,12 @@ def processar_rezdy(reservas, dias=None):
             por_produto[produto]["confirmadas"] += 1
         elif status == "ABANDONED_CART":
             por_dia[data]["abandonadas"] += 1
+        elif status == "ON_HOLD":
+            por_dia[data]["on_hold"] += 1
+            por_dia[data]["outras"] += 1
+        elif status == "CANCELLED":
+            por_dia[data]["cancelled"] += 1
+            por_dia[data]["outras"] += 1
         else:
             por_dia[data]["outras"] += 1
 
@@ -670,6 +676,8 @@ def processar_rezdy(reservas, dias=None):
             "data":        d_str,
             "confirmadas": v["confirmadas"],
             "abandonadas": v["abandonadas"],
+            "on_hold":     v["on_hold"],
+            "cancelled":   v["cancelled"],
             "outras":      v["outras"],
             "receita":     round(v["receita"], 2),
         })
@@ -1237,6 +1245,19 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     </div>
   </div>
 
+  <!-- Carrinhos Abandonados / On Hold / Outros status por dia -->
+  <div class="card mb-5">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <div style="font-weight:600;font-size:.9rem">Abandonados, On Hold &amp; Outros Status por Dia</div>
+      <div style="display:flex;gap:4px">
+        <button onclick="setRezdyView('dia')"    class="tab-btn active rezdy-view-btn rezdy-view-btn-dia"    style="padding:3px 10px;font-size:.72rem">Dia</button>
+        <button onclick="setRezdyView('semana')" class="tab-btn rezdy-view-btn rezdy-view-btn-semana" style="padding:3px 10px;font-size:.72rem">Semana</button>
+        <button onclick="setRezdyView('mes')"    class="tab-btn rezdy-view-btn rezdy-view-btn-mes"    style="padding:3px 10px;font-size:.72rem">Mês</button>
+      </div>
+    </div>
+    <canvas id="chartRezdyStatusDiario" height="200"></canvas>
+  </div>
+
   <!-- Bookings por Fonte + Booking vs Fulfilment lado a lado -->
   <div class="grid grid-cols-2 gap-4 mb-5">
     <div class="card">
@@ -1777,9 +1798,11 @@ function aggregateRezdyDays(rDays, view) {{
     }} else {{
       key = d.data.slice(0,7);
     }}
-    if (!agg[key]) agg[key] = {{data:key, confirmadas:0, abandonadas:0, outras:0, receita:0}};
+    if (!agg[key]) agg[key] = {{data:key, confirmadas:0, abandonadas:0, on_hold:0, cancelled:0, outras:0, receita:0}};
     agg[key].confirmadas += d.confirmadas;
     agg[key].abandonadas += d.abandonadas;
+    agg[key].on_hold      += (d.on_hold||0);
+    agg[key].cancelled    += (d.cancelled||0);
     agg[key].outras      += (d.outras||0);
     agg[key].receita     += d.receita;
   }}
@@ -1796,6 +1819,7 @@ function setRezdyView(view) {{
   buildRezdyDiario('chartRezdyDiario',  agg);
   buildRezdyDiario('chartRezdyDiario2', agg);
   buildRezdyReceita('chartRezdyReceita', agg);
+  buildRezdyStatusDiario('chartRezdyStatusDiario', agg);
 }}
 
 function buildRezdyDiario(canvasId, rDays) {{
@@ -1852,6 +1876,27 @@ function buildRezdyReceita(canvasId, rDays) {{
       responsive:true,
       plugins:{{legend:{{labels:{{boxWidth:12}}}},tooltip:{{callbacks:{{label:ctx=>fBRL(ctx.raw)}}}}}},
       scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},ticks:{{callback:v=>'R$'+v.toLocaleString('pt-BR')}}}}}}
+    }}
+  }});
+}}
+
+function buildRezdyStatusDiario(canvasId, rDays) {{
+  const labelFmt = d => _rezdyView === 'mes' ? d.data : fAxis(d.data);
+  makeChart(canvasId, {{
+    type:'bar',
+    data:{{
+      labels: rDays.map(labelFmt),
+      datasets:[
+        {{label:'Abandonados', data:rDays.map(d=>d.abandonadas), backgroundColor:'rgba(239,68,68,.75)', borderRadius:3, stack:'s'}},
+        {{label:'On Hold',     data:rDays.map(d=>d.on_hold||0),  backgroundColor:'rgba(245,158,11,.75)', borderRadius:3, stack:'s'}},
+        {{label:'Cancelados',  data:rDays.map(d=>d.cancelled||0),backgroundColor:'rgba(148,163,184,.75)', borderRadius:3, stack:'s'}},
+        {{label:'Outros',      data:rDays.map(d=>Math.max(0,(d.outras||0)-(d.on_hold||0)-(d.cancelled||0))), backgroundColor:'rgba(168,85,247,.6)', borderRadius:3, stack:'s'}},
+      ]
+    }},
+    options:{{
+      responsive:true, interaction:{{mode:'index',intersect:false}},
+      plugins:{{legend:{{labels:{{boxWidth:12}}}}}},
+      scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true,ticks:{{stepSize:1}}}}}}
     }}
   }});
 }}
@@ -2085,6 +2130,7 @@ function applyDateRange(from, to) {{
   buildRezdyDiario('chartRezdyDiario', rDaysAgg);
   buildRezdyDiario('chartRezdyDiario2', rDaysAgg);
   buildRezdyReceita('chartRezdyReceita', rDaysAgg);
+  buildRezdyStatusDiario('chartRezdyStatusDiario', rDaysAgg);
   buildBookingVsFulfilment('chartBookingVsFulfilment', from, to);
   buildBookingsFonte(from, to);
 
