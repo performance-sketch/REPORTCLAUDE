@@ -37,6 +37,16 @@ REZDY_KEY       = os.environ["REZDY_KEY"]
 REZDY_BASE      = "https://api.rezdy.com/v1"
 ARQUIVO_HTML    = "index.html"
 IG_ACCOUNT_ID   = "17841404363695690"
+ANNOTATIONS_FILE = pathlib.Path(__file__).parent / "data" / "annotations.json"
+
+
+def carregar_annotations():
+    """Marcadores manuais (data + comentário) para os gráficos diários da Rezdy."""
+    try:
+        annotations = json.loads(ANNOTATIONS_FILE.read_text(encoding="utf-8"))
+        return sorted(annotations, key=lambda a: a.get("date", ""))
+    except Exception:
+        return []
 
 # ─── HTTP com retry exponencial ───────────────────────────────────────────────
 def _req(url, params=None, timeout=20, retries=3):
@@ -884,6 +894,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
     voos_cupom_json   = json.dumps(rz["voos_cupom"],       ensure_ascii=False)
     cupom_resumo_json = json.dumps(rz["cupom_resumo"],     ensure_ascii=False)
     cupom_status_json = json.dumps(rz["cupom_status"],     ensure_ascii=False)
+    annotations_json  = json.dumps(carregar_annotations(), ensure_ascii=False)
 
     hoje_str   = datetime.now().strftime("%Y-%m-%d")
     d30_str    = (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d")
@@ -1679,6 +1690,7 @@ const CUPOM_STATUS = {cupom_status_json};
 const HOJE         = "{hoje_str}";
 const D30_FROM     = "{d30_str}";
 const D90_FROM     = "{d90_str}";
+const ANNOTATIONS = {annotations_json};
 let currentFrom = D30_FROM, currentTo = HOJE;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1732,6 +1744,104 @@ function switchTab(tab, btn) {{
 const charts = {{}};
 Chart.defaults.color = '#94a3b8';
 Chart.defaults.borderColor = '#334155';
+
+// ─── Anotações (marcadores manuais nos gráficos diários da Rezdy) ─────────────
+function vrLoadLocalAnnotations() {{
+  try {{ return JSON.parse(localStorage.getItem('vr_local_annotations') || '[]'); }}
+  catch (e) {{ return []; }}
+}}
+function vrSaveLocalAnnotations(list) {{
+  localStorage.setItem('vr_local_annotations', JSON.stringify(list));
+}}
+let ANNOTATIONS_ALL = ANNOTATIONS.concat(vrLoadLocalAnnotations().map(a => ({{...a, local: true}})));
+
+function vrAnnotationBucketKey(dateStr, view) {{
+  if (view === 'semana') {{
+    const d = new Date(dateStr + 'T12:00:00');
+    d.setDate(d.getDate() - d.getDay());
+    return d.toISOString().slice(0, 10);
+  }}
+  if (view === 'mes') return dateStr.slice(0, 7);
+  return dateStr;
+}}
+function vrGetAnnotationMarkers(rDays) {{
+  const idxByKey = {{}};
+  rDays.forEach((d, i) => {{ idxByKey[d.data] = i; }});
+  const out = [];
+  ANNOTATIONS_ALL.forEach(a => {{
+    const key = vrAnnotationBucketKey(a.date, _rezdyView);
+    if (Object.prototype.hasOwnProperty.call(idxByKey, key)) {{
+      out.push({{ index: idxByKey[key], note: a, color: a.local ? '#818cf8' : '#f59e0b' }});
+    }}
+  }});
+  return out;
+}}
+function vrEscapeHtml(s) {{
+  return String(s).replace(/[&<>"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]));
+}}
+function vrShowAnnotationPopup(e, note) {{
+  let pop = document.getElementById('vrAnnPopup');
+  if (!pop) {{
+    pop = document.createElement('div');
+    pop.id = 'vrAnnPopup';
+    pop.style.cssText = 'position:fixed;z-index:9999;max-width:280px;background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.45;color:#e2e8f0;box-shadow:0 12px 30px rgba(0,0,0,.5);display:none';
+    document.body.appendChild(pop);
+    document.addEventListener('click', ev => {{
+      if (pop.style.display !== 'none' && !pop.contains(ev.target) && !ev.target.closest('canvas')) pop.style.display = 'none';
+    }}, true);
+  }}
+  const [y, m, d] = note.date.split('-');
+  pop.innerHTML = `<div style="font-weight:700;margin-bottom:4px;color:${{note.local ? '#818cf8' : '#f59e0b'}}">📌 ${{d}}/${{m}}/${{y}}</div><div>${{vrEscapeHtml(note.text)}}</div>` +
+    (note.local ? '<div style="margin-top:6px;font-size:11px;color:#94a3b8">Anotação local — só visível neste navegador</div>' : '');
+  pop.style.display = 'block';
+  pop.style.left = Math.min(e.clientX + 12, window.innerWidth - 296) + 'px';
+  pop.style.top  = Math.min(e.clientY + 12, window.innerHeight - 100) + 'px';
+}}
+Chart.register({{
+  id: 'vrAnnotations',
+  afterDraw(chart, args, opts) {{
+    const markers = (opts && opts.markers) || [];
+    if (!markers.length) return;
+    const {{ ctx, chartArea, scales }} = chart;
+    if (!chartArea) return;
+    ctx.save();
+    chart._vrAnnHitboxes = [];
+    markers.forEach(mk => {{
+      const x = scales.x.getPixelForValue(mk.index);
+      if (isNaN(x) || x < chartArea.left || x > chartArea.right) return;
+      ctx.beginPath();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = mk.color;
+      ctx.lineWidth = 1.5;
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.fillStyle = mk.color;
+      ctx.arc(x, chartArea.top - 1, 5, 0, Math.PI * 2);
+      ctx.fill();
+      chart._vrAnnHitboxes.push({{ x, y: chartArea.top - 1, r: 8, note: mk.note }});
+    }});
+    ctx.restore();
+  }}
+}});
+function vrBindAnnotationClicks(canvasId) {{
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || canvas.dataset.vrAnnBound) return;
+  canvas.dataset.vrAnnBound = '1';
+  canvas.addEventListener('click', e => {{
+    const chart = charts[canvasId];
+    if (!chart || !chart._vrAnnHitboxes) return;
+    const pos = Chart.helpers.getRelativePosition(e, chart);
+    const hit = chart._vrAnnHitboxes.find(h => Math.hypot(h.x - pos.x, h.y - pos.y) <= h.r + 4);
+    if (hit) {{ e.stopPropagation(); vrShowAnnotationPopup(e, hit.note); }}
+  }});
+}}
+function vrRefreshAnnotatedCharts() {{
+  ANNOTATIONS_ALL = ANNOTATIONS.concat(vrLoadLocalAnnotations().map(a => ({{...a, local: true}})));
+  if (typeof setRezdyView === 'function') setRezdyView(_rezdyView);
+}}
 
 function makeChart(id, config) {{
   const ctx = document.getElementById(id);
@@ -1848,10 +1958,11 @@ function buildRezdyDiario(canvasId, rDays) {{
     }},
     options:{{
       responsive:true, interaction:{{mode:'index',intersect:false}},
-      plugins:{{legend:{{labels:{{boxWidth:12}}}}}},
+      plugins:{{legend:{{labels:{{boxWidth:12}}}}, vrAnnotations:{{markers:vrGetAnnotationMarkers(rDays)}}}},
       scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true,ticks:{{stepSize:1}}}}}}
     }}
   }});
+  vrBindAnnotationClicks(canvasId);
 }}
 
 function buildRezdyReceita(canvasId, rDays) {{
@@ -1864,10 +1975,11 @@ function buildRezdyReceita(canvasId, rDays) {{
     }},
     options:{{
       responsive:true,
-      plugins:{{legend:{{labels:{{boxWidth:12}}}},tooltip:{{callbacks:{{label:ctx=>fBRL(ctx.raw)}}}}}},
+      plugins:{{legend:{{labels:{{boxWidth:12}}}},tooltip:{{callbacks:{{label:ctx=>fBRL(ctx.raw)}}}}, vrAnnotations:{{markers:vrGetAnnotationMarkers(rDays)}}}},
       scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},ticks:{{callback:v=>'R$'+v.toLocaleString('pt-BR')}}}}}}
     }}
   }});
+  vrBindAnnotationClicks(canvasId);
 }}
 
 function buildRezdyStatusDiario(canvasId, rDays) {{
@@ -1886,10 +1998,11 @@ function buildRezdyStatusDiario(canvasId, rDays) {{
     }},
     options:{{
       responsive:true, interaction:{{mode:'index',intersect:false}},
-      plugins:{{legend:{{labels:{{boxWidth:12}}}}}},
+      plugins:{{legend:{{labels:{{boxWidth:12}}}}, vrAnnotations:{{markers:vrGetAnnotationMarkers(rDays)}}}},
       scales:{{x:{{grid:{{display:false}},ticks:{{maxTicksLimit:14}}}},y:{{grid:{{color:'rgba(51,65,85,.4)'}},beginAtZero:true,ticks:{{stepSize:1}}}}}}
     }}
   }});
+  vrBindAnnotationClicks(canvasId);
 }}
 
 let _fulfilView = 'dia';
@@ -3192,6 +3305,117 @@ function igLoadMore() {{
   _igPage++;
   igRenderFeed();
 }}
+</script>
+
+<!-- ═══════════════════════════ ANOTAÇÕES ════════════════════════════════ -->
+<button id="vrAnnFab" onclick="vrToggleAnnPanel()" title="Anotações do dashboard"
+  style="position:fixed;bottom:22px;right:22px;z-index:9998;background:var(--indigo);color:#fff;border:none;
+         border-radius:999px;padding:12px 18px;font-size:.85rem;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.4);
+         cursor:pointer;display:flex;align-items:center;gap:6px">
+  📌 Anotações<span id="vrAnnCount" style="background:rgba(255,255,255,.2);border-radius:999px;padding:1px 7px;font-size:.72rem"></span>
+</button>
+
+<div id="vrAnnPanel" style="display:none;position:fixed;bottom:78px;right:22px;z-index:9998;width:340px;max-height:70vh;
+       background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.55);
+       flex-direction:column;overflow:hidden">
+  <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+    <div style="font-weight:700;font-size:.9rem">📌 Anotações do dashboard</div>
+    <button onclick="vrToggleAnnPanel()" style="background:none;border:none;color:var(--sub);cursor:pointer;font-size:1.1rem;line-height:1">✕</button>
+  </div>
+
+  <div id="vrAnnList" style="padding:10px 16px;overflow-y:auto;flex:1"></div>
+
+  <div style="padding:12px 16px;border-top:1px solid var(--border);background:var(--surface2)">
+    <div style="font-size:.7rem;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Nova anotação</div>
+    <input id="vrAnnDate" type="date" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;
+           padding:7px 10px;color:var(--text);font-size:.82rem;margin-bottom:6px">
+    <textarea id="vrAnnText" placeholder="Ex: Aumento no tarifário" rows="2" style="width:100%;background:var(--bg);
+           border:1px solid var(--border);border-radius:8px;padding:7px 10px;color:var(--text);font-size:.82rem;
+           resize:vertical;margin-bottom:8px"></textarea>
+    <div style="display:flex;gap:6px">
+      <button onclick="vrAddAnnotation()" class="tab-btn active" style="flex:1;font-size:.78rem;padding:7px">Salvar (só neste navegador)</button>
+      <button onclick="vrCopyAnnotationMsg(event)" class="tab-btn" style="font-size:.78rem;padding:7px" title="Copia uma mensagem pra colar no chat do Claude e tornar permanente pra todo mundo">Copiar p/ Claude</button>
+    </div>
+    <div style="font-size:.68rem;color:var(--sub);margin-top:8px;line-height:1.4">
+      Anotações salvas aqui aparecem como marcador nos gráficos diários da Rezdy, mas só neste navegador.
+      Pra tornar permanente e visível pra todo mundo, use "Copiar p/ Claude" e cole a mensagem no chat.
+    </div>
+  </div>
+</div>
+
+<script>
+function vrToggleAnnPanel() {{
+  const panel = document.getElementById('vrAnnPanel');
+  const opening = panel.style.display === 'none';
+  panel.style.display = opening ? 'flex' : 'none';
+  if (opening) vrRenderAnnList();
+}}
+function vrRenderAnnList() {{
+  const listEl = document.getElementById('vrAnnCount');
+  listEl.textContent = ANNOTATIONS_ALL.length || '';
+  const wrap = document.getElementById('vrAnnList');
+  if (!ANNOTATIONS_ALL.length) {{
+    wrap.innerHTML = '<div style="color:var(--sub);font-size:.8rem;padding:12px 0;text-align:center">Nenhuma anotação ainda</div>';
+    return;
+  }}
+  const sorted = [...ANNOTATIONS_ALL].sort((a,b) => b.date.localeCompare(a.date));
+  wrap.innerHTML = sorted.map(a => {{
+    const [y,m,d] = a.date.split('-');
+    const badge = a.local
+      ? '<span class="badge badge-blue">local</span>'
+      : '<span class="badge badge-amber">salvo</span>';
+    const delBtn = a.local
+      ? `<button onclick="vrDeleteLocalAnnotation('${{a.date}}', this)" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:.72rem;margin-left:6px">remover</button>`
+      : '';
+    return `<div style="padding:8px 0;border-bottom:1px solid rgba(51,65,85,.5)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+        <span style="font-weight:600;font-size:.82rem">${{d}}/${{m}}/${{y}}</span>
+        <span>${{badge}}${{delBtn}}</span>
+      </div>
+      <div style="font-size:.8rem;color:var(--text)">${{vrEscapeHtml(a.text)}}</div>
+    </div>`;
+  }}).join('');
+}}
+function vrAddAnnotation() {{
+  const dateEl = document.getElementById('vrAnnDate');
+  const textEl = document.getElementById('vrAnnText');
+  const date = dateEl.value || new Date().toISOString().slice(0,10);
+  const text = textEl.value.trim();
+  if (!text) {{ textEl.focus(); return; }}
+  const list = vrLoadLocalAnnotations();
+  list.push({{ date, text }});
+  vrSaveLocalAnnotations(list);
+  textEl.value = '';
+  vrRefreshAnnotatedCharts();
+  vrRenderAnnList();
+}}
+function vrDeleteLocalAnnotation(date, btn) {{
+  const list = vrLoadLocalAnnotations().filter(a => a.date !== date);
+  vrSaveLocalAnnotations(list);
+  vrRefreshAnnotatedCharts();
+  vrRenderAnnList();
+}}
+function vrCopyAnnotationMsg(evt) {{
+  const dateEl = document.getElementById('vrAnnDate');
+  const textEl = document.getElementById('vrAnnText');
+  const date = dateEl.value || new Date().toISOString().slice(0,10);
+  const text = textEl.value.trim() || '(descreva a anotação aqui)';
+  const [y,m,d] = date.split('-');
+  const msg = `Anota no dashboard REPORTCLAUDE: dia ${{d}}/${{m}}/${{y}} — ${{text}}`;
+  const btn = evt && evt.target;
+  navigator.clipboard.writeText(msg).then(() => {{
+    if (!btn) return;
+    const original = btn.textContent;
+    btn.textContent = 'Copiado!';
+    setTimeout(() => {{ btn.textContent = original; }}, 1500);
+  }}).catch(() => alert(msg));
+}}
+(function vrInitAnnDate(){{
+  const dateEl = document.getElementById('vrAnnDate');
+  if (dateEl) dateEl.value = new Date().toISOString().slice(0,10);
+  const countEl = document.getElementById('vrAnnCount');
+  if (countEl) countEl.textContent = ANNOTATIONS_ALL.length || '';
+}})();
 </script>
 </body>
 </html>"""
