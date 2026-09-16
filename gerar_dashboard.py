@@ -741,6 +741,7 @@ def processar_rezdy(reservas, dias=None):
             "px": pax,
             "nome": (b.get("customer") or {}).get("name", "-"),
             "vend": vendedor,
+            "com":  (b.get("comments") or "").strip(),
         })
 
     # Bookings CANCELLED/ON_HOLD de vendedores internos (não entram no todos_bookings
@@ -771,6 +772,7 @@ def processar_rezdy(reservas, dias=None):
             "px": pax,
             "nome": (b.get("customer") or {}).get("name", "-"),
             "vend": vendedor,
+            "com":  (b.get("comments") or "").strip(),
         })
 
     # ── Voos confirmados com cupom ─────────────────────────────────────────────
@@ -1471,7 +1473,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
           <th style="text-align:right">PAX</th>
           <th style="text-align:right">Valor</th>
           <th>Reservado em</th><th>Voo em</th>
-          <th>Fonte</th><th>País</th><th>Cliente (interno)</th><th>Vendedor</th>
+          <th>Fonte</th><th>País</th><th>Cliente (interno)</th><th>Vendedor</th><th>Comentários</th>
         </tr></thead>
         <tbody id="book-body"></tbody>
       </table>
@@ -2515,7 +2517,7 @@ function renderBookings(from, to) {{
       if (b.vend !== vendedorFilter) return false;
     }} else if (statusFilter && b.s !== statusFilter) return false;
     if (searchVal) {{
-      const haystack = (b.n + ' ' + b.p + ' ' + (b.f||'')).toLowerCase();
+      const haystack = (b.n + ' ' + b.p + ' ' + (b.f||'') + ' ' + (b.com||'')).toLowerCase();
       if (!haystack.includes(searchVal)) return false;
     }}
     return true;
@@ -2539,17 +2541,18 @@ function renderBookings(from, to) {{
       <td style="font-size:.8rem" title="${{escHtml(b.cc||'')}}">${{flag}} ${{countryName(b.cc)}}</td>
       <td style="color:#94a3b8;font-size:.8rem;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{escHtml(b.f==='INTERNAL'?(b.nome||'-'):'')}}">${{b.f==='INTERNAL' ? escHtml(b.nome||'-') : '—'}}</td>
       <td style="font-size:.8rem;color:#94a3b8">${{b.vend ? escHtml(b.vend) : '—'}}</td>
+      <td style="color:#94a3b8;font-size:.8rem;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${{escHtml(b.com||'')}}">${{b.com ? escHtml(b.com) : '—'}}</td>
     </tr>`;
   }}).join('');
   if (filtered.length > 300) {{
-    tbody.innerHTML += `<tr><td colspan="11" style="text-align:center;color:#94a3b8;padding:12px">… e mais ${{filtered.length-300}} reservas. Use a busca ou filtre por status.</td></tr>`;
+    tbody.innerHTML += `<tr><td colspan="12" style="text-align:center;color:#94a3b8;padding:12px">… e mais ${{filtered.length-300}} reservas. Use a busca ou filtre por status.</td></tr>`;
   }}
 }}
 
 function exportCSV() {{
   const rows = _lastBookingsFiltered.length ? _lastBookingsFiltered
     : BOOKINGS.filter(b => b.d >= currentFrom && b.d <= currentTo);
-  const header = ['Nº Pedido','Status','Produto','PAX','Valor','Reservado em','Voo em','Fonte','País','Cliente (interno)','Vendedor'];
+  const header = ['Nº Pedido','Status','Produto','PAX','Valor','Reservado em','Voo em','Fonte','País','Cliente (interno)','Vendedor','Comentários'];
   const lines = [header.join(';')];
   for (const b of rows) {{
     lines.push([
@@ -2558,7 +2561,8 @@ function exportCSV() {{
       fDate(b.d), b.t ? fDate(b.t) : '',
       b.f||'ONLINE', b.cc||'',
       b.f==='INTERNAL' ? '"'+String(b.nome||'').replace(/"/g,'""')+'"' : '',
-      '"'+String(b.vend||'').replace(/"/g,'""')+'"'
+      '"'+String(b.vend||'').replace(/"/g,'""')+'"',
+      '"'+String(b.com||'').replace(/"/g,'""')+'"'
     ].join(';'));
   }}
   const blob = new Blob(['﻿'+lines.join('\\n')], {{type:'text/csv;charset=utf-8'}});
