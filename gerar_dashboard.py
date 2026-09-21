@@ -1043,10 +1043,11 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
         <button id="refresh-btn" onclick="toggleRefreshMenu(event)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;font-size:.75rem;cursor:pointer;display:flex;align-items:center;gap:6px">
           <span>🔄</span> Atualizar dados
         </button>
-        <div id="refresh-menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 12px 28px rgba(0,0,0,.35);min-width:250px;z-index:50;overflow:hidden">
-          <a href="https://github.com/performance-sketch/REPORTCLAUDE/actions/workflows/update-meta.yml" target="_blank" rel="noopener" style="display:block;padding:10px 14px;font-size:.78rem;color:var(--text);text-decoration:none;border-bottom:1px solid var(--border)">📊 Atualizar Meta Ads</a>
-          <a href="https://github.com/performance-sketch/REPORTCLAUDE/actions/workflows/update-rezdy.yml" target="_blank" rel="noopener" style="display:block;padding:10px 14px;font-size:.78rem;color:var(--text);text-decoration:none">🎟️ Atualizar Rezdy (dashboard completo)</a>
-          <div style="padding:8px 14px;font-size:.66rem;color:var(--sub);border-top:1px solid var(--border)">Abre o GitHub Actions — clique em "Run workflow" lá para disparar a atualização</div>
+        <div id="refresh-menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 12px 28px rgba(0,0,0,.35);min-width:270px;z-index:50;overflow:hidden">
+          <div style="padding:10px 14px;font-size:.72rem;color:var(--text);border-bottom:1px solid var(--border)">✅ Atualização automática a cada 15 min</div>
+          <a href="https://github.com/performance-sketch/REPORTCLAUDE/actions/workflows/update-meta.yml" target="_blank" rel="noopener" style="display:block;padding:10px 14px;font-size:.78rem;color:var(--text);text-decoration:none;border-bottom:1px solid var(--border)">📊 Forçar atualização agora — Meta Ads</a>
+          <a href="https://github.com/performance-sketch/REPORTCLAUDE/actions/workflows/update-rezdy.yml" target="_blank" rel="noopener" style="display:block;padding:10px 14px;font-size:.78rem;color:var(--text);text-decoration:none">🎟️ Forçar atualização agora — Rezdy (dashboard completo)</a>
+          <div style="padding:8px 14px;font-size:.66rem;color:var(--sub);border-top:1px solid var(--border)">Os dados já se atualizam sozinhos. Use os links acima só se quiser forçar uma atualização imediata (abre o GitHub Actions — clique em "Run workflow" lá).</div>
         </div>
       </div>
     </div>
