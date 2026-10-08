@@ -12,6 +12,7 @@ Credenciais: defina META_TOKEN e REZDY_KEY no arquivo .env
 import json
 import os
 import pathlib
+import re
 import time
 import requests
 from datetime import datetime, timedelta
@@ -49,6 +50,11 @@ def carregar_annotations():
         return []
 
 # ─── HTTP com retry exponencial ───────────────────────────────────────────────
+def _sem_credenciais(texto):
+    """Esconde tokens e chaves em mensagens de erro: os logs do GitHub Actions deste repositório são públicos."""
+    return re.sub(r"(access_token|apiKey|appsecret_proof|client_secret|input_token)=[^&\s'\"]+", r"\1=***", str(texto))
+
+
 def _req(url, params=None, timeout=20, retries=3):
     """GET com retry exponencial — 1s, 2s, 4s entre tentativas."""
     for attempt in range(retries):
@@ -62,7 +68,8 @@ def _req(url, params=None, timeout=20, retries=3):
                 print(f"       [retry {attempt+1}/{retries-1}] {type(e).__name__} — aguardando {wait}s...")
                 time.sleep(wait)
             else:
-                raise
+                # A mensagem original traz a URL completa, com o token na query string
+                raise type(e)(_sem_credenciais(e)) from None
 
 
 # ─── Meta Ads ─────────────────────────────────────────────────────────────────
@@ -613,22 +620,28 @@ def _utc_to_brt_date(dt_str):
         return dt_str[:10]
 
 
-def buscar_rezdy_reservas(limite_total=5000, date_start="2019-01-01"):
+REZDY_DESDE = "2025-01-01"   # histórico do dashboard: do início do ano passado até hoje
+
+
+def buscar_rezdy_reservas(desde=REZDY_DESDE, limite_total=60000):
+    """
+    O Rezdy devolve as reservas da mais nova para a mais antiga. Pagina até passar de `desde`
+    (antes havia um teto fixo de 5.000 reservas, que cortava o histórico em poucos meses).
+    Respeita o limite de ~100 requisições/minuto da API.
+    """
     todas, offset = [], 0
     while offset < limite_total:
-        params = {"apiKey": REZDY_KEY, "limit": 100, "offset": offset}
-        if date_start:
-            params["orderDateStart"] = date_start
-        resp = _req(f"{REZDY_BASE}/bookings", params=params, timeout=30)
+        resp = _req(f"{REZDY_BASE}/bookings", params={"apiKey": REZDY_KEY, "limit": 100, "offset": offset}, timeout=30)
         lote = resp.json().get("bookings", [])
         if not lote:
             break
         todas.extend(lote)
-        if len(lote) < 100:
+        mais_antiga = _utc_to_brt_date(lote[-1].get("dateCreated") or "")
+        if len(lote) < 100 or (mais_antiga and mais_antiga < desde):
             break
         offset += 100
-        time.sleep(0.1)
-    return todas
+        time.sleep(0.7)
+    return [b for b in todas if _utc_to_brt_date(b.get("dateCreated") or "") >= desde]
 
 
 def processar_rezdy(reservas, dias=None):
@@ -3565,8 +3578,8 @@ def main():
     except Exception as e:
         print(f"       AVISO Instagram: {e}")
 
-    print("[ 8/8 ] Rezdy — reservas (histórico completo)...")
-    reservas = buscar_rezdy_reservas(5000, date_start="2019-01-01")
+    print(f"[ 8/8 ] Rezdy — reservas desde {REZDY_DESDE}...")
+    reservas = buscar_rezdy_reservas()
     print(f"       {len(reservas)} reservas")
 
     print("[ 9/9 ] Processando e gerando HTML...")

@@ -24,7 +24,7 @@ if os.environ.get("REZDY_API_KEY"):
 
 def main():
     print("Buscando reservas Rezdy (histórico completo)...")
-    reservas = gd.buscar_rezdy_reservas(5000, date_start="2019-01-01")
+    reservas = gd.buscar_rezdy_reservas()
     print(f"  {len(reservas)} reservas")
 
     heatmap = defaultdict(lambda: defaultdict(int))
