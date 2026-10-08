@@ -5,6 +5,8 @@ Env: META_ACCESS_TOKEN, META_AD_ACCOUNT_ID
 Run: python scripts/update_meta_data.py
 """
 import os, re, sys, json, requests
+import log_seguro  # esconde tokens em tudo que é impresso (logs públicos)
+log_seguro.ativar()
 from datetime import datetime, timedelta
 
 ACCESS_TOKEN  = os.environ.get("META_ACCESS_TOKEN", "")

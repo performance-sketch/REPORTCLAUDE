@@ -7,6 +7,8 @@ Env:  REZDY_API_KEY  (set as GitHub Actions secret)
 Run:  python scripts/update_rezdy_data.py
 """
 import os, re, sys, time, json as _json, requests
+import log_seguro  # esconde tokens em tudo que é impresso (logs públicos)
+log_seguro.ativar()
 from datetime import date
 
 API_KEY  = os.environ.get("REZDY_API_KEY", "")

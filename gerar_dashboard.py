@@ -16,6 +16,11 @@ import re
 import time
 import requests
 from datetime import datetime, timedelta
+
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).parent / "scripts"))
+import log_seguro  # noqa: E402 — esconde tokens em tudo que é impresso (logs públicos)
+log_seguro.ativar()
 from collections import defaultdict
 
 # ─── Carrega .env se existir ──────────────────────────────────────────────────
