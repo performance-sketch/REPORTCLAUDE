@@ -1328,7 +1328,7 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <div class="card mb-5">
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
       <div style="font-weight:600;font-size:.9rem">📅 Quando Reservaram → Para Qual Mês Voaram?</div>
-      <span class="badge badge-gray">linhas = mês da reserva · colunas = mês do voo · cor = volume</span>
+      <span class="badge badge-gray"><span id="heatmap-periodo"></span> · linhas = mês da reserva · colunas = mês do voo</span>
     </div>
     <div style="overflow-x:auto">
       <div id="heatmap-container"></div>
@@ -2171,6 +2171,7 @@ function buildBookingsFonte(from, to) {{
 // ─── Date range apply ─────────────────────────────────────────────────────────
 function applyDateRange(from, to) {{
   currentFrom = from; currentTo = to;
+  renderHeatmap(from, to);
 
   // ── Período atual ──
   const mDays  = META_DATA.diario.filter(d => d.data >= from && d.data <= to);
@@ -2912,23 +2913,50 @@ function renderVendedores(from, to) {{
   }}).join('');
 }}
 
-function renderHeatmap() {{
+function renderHeatmap(from, to) {{
+  from = from || currentFrom; to = to || currentTo;
   const MONTHS_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  const allCreated = Object.keys(HEATMAP).sort();
-  // Collect all tour months
-  const tourSet = new Set();
-  for (const row of Object.values(HEATMAP)) Object.keys(row).forEach(m => tourSet.add(m));
-  const allTour = [...tourSet].sort();
-  if (!allCreated.length) return;
+  const el = document.getElementById('heatmap-container');
+  const lbl = document.getElementById('heatmap-periodo');
+  if (lbl) lbl.textContent = `reservas feitas de ${{fDate(from)}} a ${{fDate(to)}}`;
 
-  // Max for color scale
+  // Monta a matriz a partir das reservas CONFIRMED criadas dentro do período do calendário
+  const hm = {{}};
+  const tourSet = new Set();
+  let total = 0;
+  for (const b of BOOKINGS) {{
+    if (b.s !== 'CONFIRMED' || !b.d || !b.t) continue;
+    if (b.d < from || b.d > to) continue;
+    const cm = b.d.slice(0,7), tm = b.t.slice(0,7);
+    if (!hm[cm]) hm[cm] = {{}};
+    hm[cm][tm] = (hm[cm][tm] || 0) + 1;
+    tourSet.add(tm);
+    total++;
+  }}
+  const allCreated = Object.keys(hm).sort();
+  const allTour = [...tourSet].sort();
+  if (!allCreated.length) {{
+    if (el) el.innerHTML = '<div style="padding:16px;color:#94a3b8;font-size:.8rem">Nenhuma reserva confirmada no período selecionado.</div>';
+    return;
+  }}
+
+  // Max for color scale (dentro do período filtrado)
   let maxVal = 0;
-  for (const row of Object.values(HEATMAP))
+  for (const row of Object.values(hm))
     for (const v of Object.values(row)) if (v > maxVal) maxVal = v;
 
   const fmtYM = ym => {{
     const [y,m] = ym.split('-');
     return MONTHS_PT[parseInt(m)-1] + '/' + y.slice(2);
+  }};
+  // Rótulo da linha: se o período corta o mês, mostra o recorte de dias
+  const rowLabel = cm => {{
+    const mStart = cm + '-01';
+    const mEnd = new Date(+cm.slice(0,4), +cm.slice(5,7), 0).toISOString().slice(0,10);
+    const s = from > mStart ? from : mStart;
+    const e = to < mEnd ? to : mEnd;
+    if (s === mStart && e === mEnd) return fmtYM(cm);
+    return `${{fmtYM(cm)}} <span style="color:#64748b;font-weight:400">(${{s.slice(8)}}–${{e.slice(8)}})</span>`;
   }};
   const heatColor = v => {{
     if (!v) return 'background:#1e293b;color:#334155';
@@ -2940,6 +2968,7 @@ function renderHeatmap() {{
     return `background:rgb(${{r}},${{g}},${{b}});color:${{fg}};font-weight:${{t>0.3?'600':'400'}}`;
   }};
 
+  const colTot = {{}};
   let tbl = '<table style="border-collapse:separate;border-spacing:2px;font-size:.72rem;min-width:max-content">';
   // Header row
   tbl += '<thead><tr>';
@@ -2947,18 +2976,28 @@ function renderHeatmap() {{
   for (const tm of allTour) {{
     tbl += `<th style="padding:4px 8px;text-align:center;color:#94a3b8;font-weight:500;white-space:nowrap">${{fmtYM(tm)}}</th>`;
   }}
+  tbl += '<th style="padding:4px 10px;text-align:center;color:#94a3b8;font-weight:600">Total</th>';
   tbl += '</tr></thead><tbody>';
   for (const cm of allCreated) {{
-    tbl += `<tr><td style="padding:4px 10px;color:#94a3b8;white-space:nowrap;font-weight:500">${{fmtYM(cm)}}</td>`;
+    tbl += `<tr><td style="padding:4px 10px;color:#94a3b8;white-space:nowrap;font-weight:500">${{rowLabel(cm)}}</td>`;
+    let rowTot = 0;
     for (const tm of allTour) {{
-      const v = (HEATMAP[cm] || {{}})[tm] || 0;
+      const v = hm[cm][tm] || 0;
+      rowTot += v; colTot[tm] = (colTot[tm] || 0) + v;
       const tip = v ? `${{v}} reserva${{v>1?'s':''}} feitas em ${{fmtYM(cm)}} para voos em ${{fmtYM(tm)}}` : '';
-      tbl += `<td title="${{tip}}" style="padding:6px 8px;text-align:center;border-radius:4px;${{heatColor(v)}};min-width:44px;cursor:${{v?'default':''}}">${{v||''}}</td>`;
+      tbl += `<td title="${{tip}}" style="padding:6px 8px;text-align:center;border-radius:4px;${{heatColor(v)}};min-width:44px">${{v||''}}</td>`;
     }}
-    tbl += '</tr>';
+    tbl += `<td style="padding:6px 10px;text-align:center;color:#e2e8f0;font-weight:600">${{rowTot}}</td></tr>`;
+  }}
+  if (allCreated.length > 1) {{
+    tbl += '<tr><td style="padding:4px 10px;color:#94a3b8;font-weight:600">Total</td>';
+    for (const tm of allTour) {{
+      const pct = total ? Math.round(colTot[tm] / total * 100) : 0;
+      tbl += `<td title="${{pct}}% das reservas do período" style="padding:6px 8px;text-align:center;color:#e2e8f0;font-weight:600">${{colTot[tm]}}</td>`;
+    }}
+    tbl += `<td style="padding:6px 10px;text-align:center;color:#fff;font-weight:700">${{total}}</td></tr>`;
   }}
   tbl += '</tbody></table>';
-  const el = document.getElementById('heatmap-container');
   if (el) el.innerHTML = tbl;
 }}
 
@@ -3175,7 +3214,6 @@ flatpickr("#date-range", {{
 // ─── Init com últimos 30d ─────────────────────────────────────────────────────
 populateVendedorFilter();
 applyDateRange(D30_FROM, HOJE);
-renderHeatmap();
 
 // ─── Instagram init ───────────────────────────────────────────────────────────
 function _fN2(v) {{
