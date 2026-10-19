@@ -771,6 +771,22 @@ def processar_rezdy(reservas, dias=None):
             "vend": vendedor,
             "com":  (b.get("comments") or "").strip(),
         })
+        _pg = b.get("payments") or []
+        for _k, _val in (
+            ("ex",  sum(float(e.get("price") or 0) * (e.get("quantity") or 0) for i in itens for e in (i.get("extras") or []))),
+            ("foc", sum(float(x.get("amount") or 0) for x in _pg if x.get("type") == "FREE")),
+            ("cup", sum(float(x.get("amount") or 0) for x in _pg if x.get("type") == "PROMO_CODE")),
+        ):
+            if _val:
+                todos_bookings[-1][_k] = round(_val, 2)
+        _exd = defaultdict(lambda: [0, 0.0])
+        for i in itens:
+            for e in (i.get("extras") or []):
+                if e.get("quantity"):
+                    _exd[e.get("name") or "?"][0] += e["quantity"]
+                    _exd[e.get("name") or "?"][1] += float(e.get("price") or 0) * e["quantity"]
+        if _exd:
+            todos_bookings[-1]["exd"] = [[n, q, round(v, 2)] for n, (q, v) in _exd.items()]
 
     # Bookings CANCELLED/ON_HOLD de vendedores internos (não entram no todos_bookings
     # acima, que é só CONFIRMED e alimenta gráficos que assumem isso) — usado no card
@@ -1308,11 +1324,15 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
         <div style="font-weight:600;font-size:.9rem">Dia da Reserva vs Dia do Voo</div>
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
           <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
-            <span style="display:inline-block;width:12px;height:12px;background:rgba(99,102,241,.65);border-radius:2px"></span>Reservas feitas
+            <span style="display:inline-block;width:12px;height:12px;background:rgba(99,102,241,.65);border-radius:2px"></span><span id="fulfil-leg-book">Reservas feitas (PAX)</span>
           </span>
           <span style="display:flex;align-items:center;gap:5px;font-size:.75rem;color:#94a3b8">
-            <span style="display:inline-block;width:22px;height:2px;background:#06b6d4;border-radius:2px"></span>Voos realizados
+            <span style="display:inline-block;width:22px;height:2px;background:#06b6d4;border-radius:2px"></span><span id="fulfil-leg-fulf">PAX Fulfilments</span>
           </span>
+          <div style="display:flex;gap:4px">
+            <button onclick="setFulfilMetrica('pax')" id="fulfil-btn-pax" class="tab-btn active" style="padding:3px 10px;font-size:.72rem">PAX</button>
+            <button onclick="setFulfilMetrica('bk')"  id="fulfil-btn-bk"  class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Bookings</button>
+          </div>
           <div style="display:flex;gap:4px">
             <button onclick="setFulfilView('dia')"    id="fulfil-btn-dia"    class="tab-btn active" style="padding:3px 10px;font-size:.72rem">Dia</button>
             <button onclick="setFulfilView('semana')" id="fulfil-btn-semana" class="tab-btn"        style="padding:3px 10px;font-size:.72rem">Semana</button>
@@ -1328,9 +1348,12 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <div class="card mb-5">
     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
       <div style="font-weight:600;font-size:.9rem">📅 Quando Reservaram → Para Qual Mês Voaram?</div>
-      <span class="badge badge-gray"><span id="heatmap-periodo"></span> · linhas = mês da reserva · colunas = mês do voo</span>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="badge badge-gray"><span id="heatmap-periodo"></span> · linhas = mês da reserva · colunas = mês do voo</span>
+        <button id="heatmap-toggle" onclick="toggleCard('heatmap-body','heatmap-toggle')" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">▲ Minimizar</button>
+      </div>
     </div>
-    <div style="overflow-x:auto">
+    <div id="heatmap-body" style="overflow-x:auto">
       <div id="heatmap-container"></div>
     </div>
   </div>
@@ -1338,8 +1361,11 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
   <!-- Público: Top Países -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
     <div class="card">
-      <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">🌍 Público — Top Países</div>
-      <div style="overflow-x:auto">
+      <div class="flex items-center justify-between flex-wrap gap-2" style="margin-bottom:16px">
+        <div style="font-weight:600;font-size:.9rem">🌍 Público — Top Países</div>
+        <button id="paises-toggle" onclick="toggleCard('paises-body-wrap','paises-toggle')" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">▲ Minimizar</button>
+      </div>
+      <div id="paises-body-wrap" style="overflow-x:auto">
         <table>
           <thead><tr>
             <th>País</th>
@@ -1353,8 +1379,11 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
       </div>
     </div>
     <div class="card">
-      <div style="font-weight:600;font-size:.9rem;margin-bottom:16px">🏆 Maiores Clientes (por receita)</div>
-      <div style="overflow-x:auto">
+      <div class="flex items-center justify-between flex-wrap gap-2" style="margin-bottom:16px">
+        <div style="font-weight:600;font-size:.9rem">🏆 Maiores Clientes (por receita)</div>
+        <button id="clientes-toggle" onclick="toggleCard('clientes-body','clientes-toggle')" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">▲ Minimizar</button>
+      </div>
+      <div id="clientes-body" style="overflow-x:auto">
         <table>
           <thead><tr>
             <th>Cliente</th>
@@ -1389,6 +1418,67 @@ def gerar_html(meta, rezdy_dados, camps_diario, criativos, atualizado_em, organi
         </tr></thead>
         <tbody id="vendedores-body"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- Performance dos Vendedores (pax, ticket, extras, FOC) -->
+  <style>#vend-perf td {{ white-space:nowrap; }}</style>
+  <div class="card mb-5" id="vend-perf">
+    <div class="flex items-center justify-between flex-wrap gap-2" style="cursor:pointer" onclick="toggleVendPerf()">
+      <div style="font-weight:600;font-size:.9rem"><span id="vend-perf-seta" style="display:inline-block;width:14px">▼</span> 📊 Performance dos Vendedores — Extras &amp; Free of Charge</div>
+      <span class="badge badge-gray">só CONFIRMED · data de criação · clique para minimizar</span>
+    </div>
+    <div id="vend-perf-body" style="margin-top:16px">
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
+        <div class="card" style="background:var(--surface2)"><div class="kpi-label">Bookings</div><div class="kpi-val" id="vp-bk">—</div><div class="kpi-delta" id="vp-bk-sub"></div></div>
+        <div class="card" style="background:var(--surface2)"><div class="kpi-label">Pax / booking</div><div class="kpi-val" id="vp-pxbk">—</div><div class="kpi-delta">média do período</div></div>
+        <div class="card" style="background:var(--surface2)"><div class="kpi-label">Vendas totais</div><div class="kpi-val" id="vp-vendas" style="color:var(--green);font-size:1.2rem">—</div><div class="kpi-delta" id="vp-vendas-sub"></div></div>
+        <div class="card" style="background:var(--surface2)"><div class="kpi-label">Ticket médio</div><div class="kpi-val" id="vp-ticket" style="font-size:1.2rem">—</div><div class="kpi-delta">por booking</div></div>
+        <div class="card" style="background:var(--surface2)"><div class="kpi-label">Extras / pax</div><div class="kpi-val" id="vp-expax" style="color:var(--cyan);font-size:1.2rem">—</div><div class="kpi-delta" id="vp-expax-sub"></div></div>
+        <div class="card" style="background:var(--surface2)"><div class="kpi-label">Free of Charge</div><div class="kpi-val" id="vp-foc" style="color:var(--amber);font-size:1.2rem">—</div><div class="kpi-delta" id="vp-foc-sub"></div></div>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Vendedor</th>
+            <th style="text-align:right">Bookings</th>
+            <th style="text-align:right">PAX</th>
+            <th style="text-align:right">Pax/booking</th>
+            <th style="text-align:right">Vendas</th>
+            <th style="text-align:right">Ticket médio</th>
+            <th style="text-align:right">Extras</th>
+            <th style="text-align:right">Extras/pax</th>
+            <th style="text-align:right">FOC (R$)</th>
+            <th style="text-align:right">Bookings c/ FOC</th>
+            <th style="text-align:right">FOC %</th>
+            <th style="text-align:right">Cupom</th>
+            <th style="text-align:right">Líquido</th>
+          </tr></thead>
+          <tbody id="vend-perf-tbody"></tbody>
+        </table>
+      </div>
+      <div class="flex items-center justify-between flex-wrap gap-2" style="margin-top:22px;margin-bottom:8px">
+        <div style="font-weight:600;font-size:.85rem">🎒 Por Extra <span style="font-weight:400;color:var(--sub);font-size:.72rem">— reservas que incluíram cada extra</span></div>
+        <select id="vend-perf-extra-vend" onchange="renderVendPerf(currentFrom, currentTo)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 10px;font-size:.8rem">
+          <option value="">Todos vendedores</option>
+        </select>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Extra</th>
+            <th style="text-align:right">Extras</th>
+            <th style="text-align:right">Extras/pax</th>
+            <th style="text-align:right">FOC (R$)</th>
+            <th style="text-align:right">Bookings c/ FOC</th>
+            <th style="text-align:right">FOC %</th>
+            <th style="text-align:right">Cupom</th>
+            <th style="text-align:right">Líquido</th>
+          </tr></thead>
+          <tbody id="vend-perf-extra-tbody"></tbody>
+        </table>
+      </div>
+      <div style="font-size:.7rem;color:var(--sub);margin-top:10px">FOC = pagamentos tipo FREE no Rezdy (cortesias de GoPro/360/SSP, "desconto pra fechar", collabs, upgrades). Vendas = valor bruto da reserva. Líquido = vendas − FOC − cupom. Em "Por Extra", Extras = valor só daquele extra; Extras/pax = esse valor ÷ pax das reservas que o incluíram; FOC, cupom e líquido são das reservas inteiras que incluíram o extra (uma reserva com 2 extras aparece nas 2 linhas, por isso as linhas não somam o total).</div>
     </div>
   </div>
 
@@ -2062,6 +2152,16 @@ function setFulfilView(view) {{
   buildBookingVsFulfilment('chartBookingVsFulfilment', _fulfilFrom, _fulfilTo);
 }}
 
+let _fulfilMetrica = 'pax';
+function setFulfilMetrica(m) {{
+  _fulfilMetrica = m;
+  ['pax','bk'].forEach(v => {{
+    const btn = document.getElementById('fulfil-btn-' + v);
+    if (btn) btn.classList.toggle('active', v === m);
+  }});
+  buildBookingVsFulfilment('chartBookingVsFulfilment', _fulfilFrom, _fulfilTo);
+}}
+
 function buildBookingVsFulfilment(canvasId, from, to) {{
   _fulfilFrom = from; _fulfilTo = to;
 
@@ -2081,20 +2181,26 @@ function buildBookingVsFulfilment(canvasId, from, to) {{
   const fulfMap = {{}};
   for (const b of BOOKINGS) {{
     if (b.s !== 'CONFIRMED') continue;
-    if (b.d >= from && b.d <= to) {{ const k = bucket(b.d); bookMap[k] = (bookMap[k]||0) + 1; }}
-    if (b.t && b.t >= from && b.t <= to) {{ const k = bucket(b.t); fulfMap[k] = (fulfMap[k]||0) + 1; }}
+    const n = _fulfilMetrica === 'pax' ? (b.px || 1) : 1;
+    if (b.d >= from && b.d <= to) {{ const k = bucket(b.d); bookMap[k] = (bookMap[k]||0) + n; }}
+    if (b.t && b.t >= from && b.t <= to) {{ const k = bucket(b.t); fulfMap[k] = (fulfMap[k]||0) + n; }}
   }}
 
   const keys = [...new Set([...Object.keys(bookMap), ...Object.keys(fulfMap)])].sort();
+  const pax = _fulfilMetrica === 'pax';
+  const lblBook = pax ? 'Reservas feitas (PAX)' : 'Reservas feitas';
+  const lblFulf = pax ? 'PAX Fulfilments' : 'Voos realizados';
+  const lb = document.getElementById('fulfil-leg-book'); if (lb) lb.textContent = lblBook;
+  const lf = document.getElementById('fulfil-leg-fulf'); if (lf) lf.textContent = lblFulf;
 
   makeChart(canvasId, {{
     type: 'bar',
     data: {{
       labels: keys.map(dispLabel),
       datasets: [
-        {{ label:'Reservas feitas', data:keys.map(k=>bookMap[k]||0),
+        {{ label:lblBook, data:keys.map(k=>bookMap[k]||0),
            backgroundColor:'rgba(99,102,241,.65)', borderRadius:3, order:2 }},
-        {{ label:'Voos realizados (fulfilment)', data:keys.map(k=>fulfMap[k]||0),
+        {{ label:lblFulf, data:keys.map(k=>fulfMap[k]||0),
            type:'line', borderColor:'#06b6d4', backgroundColor:'rgba(6,182,212,.12)',
            fill:true, tension:0.4, pointRadius:2, borderWidth:2, order:1 }},
       ]
@@ -2290,6 +2396,7 @@ function applyDateRange(from, to) {{
   renderBookings(from, to);
   renderPaises(from, to);
   renderVendedores(from, to);
+  renderVendPerf(from, to);
   renderCupons(from, to);
   renderOrganico(from, to);
 
@@ -2865,6 +2972,124 @@ function populateVendedorFilter() {{
   const vendedores = [...new Set(BOOKINGS.concat(BOOKINGS_VEND_EXTRA).filter(b => b.vend).map(b => b.vend))].sort();
   sel.innerHTML = '<option value="">Todos vendedores</option>' +
     vendedores.map(v => `<option value="${{escHtml(v)}}">${{escHtml(v)}}</option>`).join('');
+}}
+
+function toggleVendPerf(forcar) {{
+  const body = document.getElementById('vend-perf-body');
+  const fechado = forcar !== undefined ? forcar : body.style.display !== 'none';
+  body.style.display = fechado ? 'none' : '';
+  document.getElementById('vend-perf-seta').textContent = fechado ? '▶' : '▼';
+  try {{ localStorage.setItem('vendPerfFechado', fechado ? '1' : '0'); }} catch (e) {{}}
+}}
+
+function renderVendPerf(from, to) {{
+  const tbody = document.getElementById('vend-perf-tbody');
+  if (!tbody) return;
+  if (!renderVendPerf.iniciado) {{
+    renderVendPerf.iniciado = true;
+    try {{ if (localStorage.getItem('vendPerfFechado') === '1') toggleVendPerf(true); }} catch (e) {{}}
+  }}
+  const fR = v => 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+  const dec = (v, n) => v.toFixed(n).replace('.', ',');
+  const div = (a, b) => b ? a / b : 0;
+  const novo = () => ({{bk:0, px:0, v:0, ex:0, foc:0, focBk:0, cup:0, exd:{{}}}});
+  const ag = {{}}, tot = novo();
+  for (const b of BOOKINGS) {{
+    if (b.d < from || b.d > to || b.s !== 'CONFIRMED' || !b.vend) continue;
+    for (const a of [ag[b.vend] || (ag[b.vend] = novo()), tot]) {{
+      a.bk++; a.px += (b.px || 1); a.v += b.v;
+      a.ex += (b.ex || 0); a.foc += (b.foc || 0); a.cup += (b.cup || 0);
+      if (b.foc) a.focBk++;
+      for (const [n, q, val] of (b.exd || [])) {{
+        const e = a.exd[n] || (a.exd[n] = {{q:0, v:0}});
+        e.q += q; e.v += val;
+      }}
+    }}
+  }}
+  setText('vp-bk', tot.bk);
+  setText('vp-bk-sub', tot.px + ' pax');
+  setText('vp-pxbk', dec(div(tot.px, tot.bk), 2));
+  setText('vp-vendas', fR(tot.v));
+  setText('vp-vendas-sub', 'líquido ' + fR(tot.v - tot.foc - tot.cup));
+  setText('vp-ticket', fR(div(tot.v, tot.bk)));
+  setText('vp-expax', fR(div(tot.ex, tot.px)));
+  setText('vp-expax-sub', fR(tot.ex) + ' em extras');
+  setText('vp-foc', fR(tot.foc));
+  setText('vp-foc-sub', dec(div(tot.foc, tot.v) * 100, 1) + '% das vendas · ' + tot.focBk + ' bookings');
+  const linhas = Object.entries(ag).sort((a, b) => b[1].v - a[1].v);
+  if (!linhas.length) {{
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:#94a3b8;padding:12px">Nenhuma reserva interna no período</td></tr>`;
+    const tbE0 = document.getElementById('vend-perf-extra-tbody'); if (tbE0) tbE0.innerHTML = '';
+    return;
+  }}
+  const linha = (nome, a, total) => {{
+    const focPct = div(a.foc, a.v) * 100;
+    const corFoc = focPct >= 20 ? 'var(--red)' : focPct >= 10 ? 'var(--amber)' : '#94a3b8';
+    const st = total ? 'font-weight:700;border-top:2px solid var(--border)' : '';
+    return `<tr style="${{st}}">
+      <td style="font-weight:600">${{total ? 'Total interno' : escHtml(nome)}}</td>
+      <td style="text-align:right;font-weight:600">${{a.bk}}</td>
+      <td style="text-align:right;color:#94a3b8">${{a.px}}</td>
+      <td style="text-align:right">${{dec(div(a.px, a.bk), 2)}}</td>
+      <td style="text-align:right;font-weight:600;color:#22c55e">${{fR(a.v)}}</td>
+      <td style="text-align:right">${{fR(div(a.v, a.bk))}}</td>
+      <td style="text-align:right;color:#94a3b8">${{fR(a.ex)}}</td>
+      <td style="text-align:right;color:var(--cyan)">${{fR(div(a.ex, a.px))}}</td>
+      <td style="text-align:right;color:${{a.foc ? 'var(--amber)' : '#94a3b8'}}">${{fR(a.foc)}}</td>
+      <td style="text-align:right;color:#94a3b8">${{a.focBk}}</td>
+      <td style="text-align:right;color:${{corFoc}}">${{dec(focPct, 1)}}%</td>
+      <td style="text-align:right;color:#94a3b8">${{fR(a.cup)}}</td>
+      <td style="text-align:right;font-weight:600">${{fR(a.v - a.foc - a.cup)}}</td>
+    </tr>`;
+  }};
+  tbody.innerHTML = linhas.map(([n, a]) => linha(n, a, false)).join('') + linha('', tot, true);
+
+  // ── Por Extra ──
+  const sel = document.getElementById('vend-perf-extra-vend');
+  const tbE = document.getElementById('vend-perf-extra-tbody');
+  if (!sel || !tbE) return;
+  const atual = sel.value;
+  sel.innerHTML = '<option value="">Todos vendedores</option>' + linhas.map(([n]) =>
+    `<option value="${{escHtml(n)}}"${{n === atual ? ' selected' : ''}}>${{escHtml(n)}}</option>`).join('');
+  const filtroV = linhas.some(([n]) => n === atual) ? atual : '';
+  const porEx = {{}}, semEx = novo(), totE = novo();
+  const soma = (a, b, exV) => {{
+    a.bk++; a.px += (b.px || 1); a.v += b.v; a.ex += exV;
+    a.foc += (b.foc || 0); a.cup += (b.cup || 0);
+    if (b.foc) a.focBk++;
+  }};
+  for (const b of BOOKINGS) {{
+    if (b.d < from || b.d > to || b.s !== 'CONFIRMED' || !b.vend) continue;
+    if (filtroV && b.vend !== filtroV) continue;
+    soma(totE, b, b.ex || 0);
+    if (!b.exd || !b.exd.length) {{ soma(semEx, b, 0); continue; }}
+    for (const [n, q, val] of b.exd) {{
+      const a = porEx[n] || (porEx[n] = Object.assign(novo(), {{un:0}}));
+      soma(a, b, val); a.un += q;
+    }}
+  }}
+  const linhaE = (nome, a, un, estilo) => {{
+    const focPct = div(a.foc, a.v) * 100;
+    const corFoc = focPct >= 20 ? 'var(--red)' : focPct >= 10 ? 'var(--amber)' : '#94a3b8';
+    return `<tr style="${{estilo || ''}}">
+      <td style="font-weight:600">${{nome}}</td>
+      <td style="text-align:right;font-weight:600;color:var(--cyan)">${{fR(a.ex)}}</td>
+      <td style="text-align:right;color:var(--cyan)">${{fR(div(a.ex, a.px))}}</td>
+      <td style="text-align:right;color:${{a.foc ? 'var(--amber)' : '#94a3b8'}}">${{fR(a.foc)}}</td>
+      <td style="text-align:right;color:#94a3b8">${{a.focBk}}</td>
+      <td style="text-align:right;color:${{corFoc}}">${{dec(focPct, 1)}}%</td>
+      <td style="text-align:right;color:#94a3b8">${{fR(a.cup)}}</td>
+      <td style="text-align:right;font-weight:600">${{fR(a.v - a.foc - a.cup)}}</td>
+    </tr>`;
+  }};
+  const exLinhas = Object.entries(porEx).sort((x, y) => y[1].ex - x[1].ex);
+  if (!totE.bk) {{
+    tbE.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:12px">Nenhuma reserva interna no período</td></tr>`;
+    return;
+  }}
+  tbE.innerHTML = exLinhas.map(([n, a]) => linhaE(escHtml(n), a, a.un)).join('')
+    + linhaE('<span style="color:#94a3b8">Sem extras</span>', semEx, '—')
+    + linhaE('Total interno', totE, exLinhas.reduce((t, [, a]) => t + a.un, 0), 'font-weight:700;border-top:2px solid var(--border)');
 }}
 
 function renderVendedores(from, to) {{
