@@ -407,6 +407,10 @@
       <div style="font-weight:600;font-size:.9rem">📅 Quando Reservaram → Para Qual Mês Voaram?</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span class="badge badge-gray"><span id="heatmap-periodo"></span> · linhas = mês da reserva · colunas = mês do voo</span>
+        <div style="display:flex;gap:4px">
+          <button onclick="setHeatmapMetrica('bk')"  id="heatmap-btn-bk"  class="tab-btn active" style="padding:3px 10px;font-size:.72rem">Bookings</button>
+          <button onclick="setHeatmapMetrica('pax')" id="heatmap-btn-pax" class="tab-btn"        style="padding:3px 10px;font-size:.72rem">PAX</button>
+        </div>
         <button id="heatmap-toggle" onclick="toggleCard('heatmap-body','heatmap-toggle')" style="background:var(--surface2);border:1px solid var(--border);color:var(--sub);border-radius:6px;padding:4px 12px;font-size:.75rem;cursor:pointer">▲ Minimizar</button>
       </div>
     </div>
@@ -2205,6 +2209,16 @@ function renderVendedores(from, to) {
   }).join('');
 }
 
+let _heatmapMetrica = 'bk';
+function setHeatmapMetrica(m) {
+  _heatmapMetrica = m;
+  ['bk','pax'].forEach(v => {
+    const btn = document.getElementById('heatmap-btn-' + v);
+    if (btn) btn.classList.toggle('active', v === m);
+  });
+  renderHeatmap();
+}
+
 function renderHeatmap(from, to) {
   from = from || currentFrom; to = to || currentTo;
   const MONTHS_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -2221,9 +2235,10 @@ function renderHeatmap(from, to) {
     if (b.d < from || b.d > to) continue;
     const cm = b.d.slice(0,7), tm = b.t.slice(0,7);
     if (!hm[cm]) hm[cm] = {};
-    hm[cm][tm] = (hm[cm][tm] || 0) + 1;
+    const n = _heatmapMetrica === 'pax' ? (b.px || 1) : 1;
+    hm[cm][tm] = (hm[cm][tm] || 0) + n;
     tourSet.add(tm);
-    total++;
+    total += n;
   }
   const allCreated = Object.keys(hm).sort();
   const allTour = [...tourSet].sort();
@@ -2276,7 +2291,7 @@ function renderHeatmap(from, to) {
     for (const tm of allTour) {
       const v = hm[cm][tm] || 0;
       rowTot += v; colTot[tm] = (colTot[tm] || 0) + v;
-      const tip = v ? `${v} reserva${v>1?'s':''} feitas em ${fmtYM(cm)} para voos em ${fmtYM(tm)}` : '';
+      const tip = v ? `${v} ${_heatmapMetrica === 'pax' ? 'PAX' : (v>1 ? 'reservas' : 'reserva')} feitas em ${fmtYM(cm)} para voos em ${fmtYM(tm)}` : '';
       tbl += `<td title="${tip}" style="padding:6px 8px;text-align:center;border-radius:4px;${heatColor(v)};min-width:44px">${v||''}</td>`;
     }
     tbl += `<td style="padding:6px 10px;text-align:center;color:#e2e8f0;font-weight:600">${rowTot}</td></tr>`;
@@ -2285,7 +2300,7 @@ function renderHeatmap(from, to) {
     tbl += '<tr><td style="padding:4px 10px;color:#94a3b8;font-weight:600">Total</td>';
     for (const tm of allTour) {
       const pct = total ? Math.round(colTot[tm] / total * 100) : 0;
-      tbl += `<td title="${pct}% das reservas do período" style="padding:6px 8px;text-align:center;color:#e2e8f0;font-weight:600">${colTot[tm]}</td>`;
+      tbl += `<td title="${pct}% ${_heatmapMetrica === 'pax' ? 'do PAX' : 'das reservas'} do período" style="padding:6px 8px;text-align:center;color:#e2e8f0;font-weight:600">${colTot[tm]}</td>`;
     }
     tbl += `<td style="padding:6px 10px;text-align:center;color:#fff;font-weight:700">${total}</td></tr>`;
   }
